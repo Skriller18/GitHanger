@@ -1,5 +1,14 @@
 import React from 'react';
-import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  useLocation,
+  useMatch,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import './App.css';
 import { apiGet, apiPost } from './api';
 import { DiffView } from './DiffView';
@@ -29,16 +38,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <Link to="/" style={{ fontWeight: 700, fontSize: 18, textDecoration: 'none', color: '#111' }}>
-            GitHanger
-          </Link>
-          <span style={{ color: '#666' }}>local dashboard</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
-            <Link to="/" style={{ color: '#111' }}>Repos</Link>
-            <Link to="/sessions" style={{ color: '#111' }}>Sessions</Link>
-          </div>
-        </div>
+        <TopBar />
 
         <Routes>
           <Route path="/" element={<ReposPage />} />
@@ -49,6 +49,65 @@ export default function App() {
         </Routes>
       </div>
     </BrowserRouter>
+  );
+}
+
+function TopBar() {
+  const matchRepo = useMatch('/repo/:id/*');
+  const repoId = matchRepo?.params?.id;
+  const location = useLocation();
+
+  const [me, setMe] = React.useState<{ branch: string; dirty: boolean } | null>(null);
+
+  React.useEffect(() => {
+    (async () => {
+      if (!repoId) {
+        setMe(null);
+        return;
+      }
+      try {
+        const m = await apiGet<{ ok: true; branch: string; dirty: boolean }>(`/api/repos/${repoId}/me`);
+        setMe({ branch: m.branch, dirty: m.dirty });
+      } catch {
+        setMe(null);
+      }
+    })();
+    // re-fetch on path change within repo pages so the header stays fresh after jump.
+  }, [repoId, location.pathname]);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <Link to="/" style={{ fontWeight: 700, fontSize: 18, textDecoration: 'none', color: '#111' }}>
+        GitHanger
+      </Link>
+      <span style={{ color: '#666' }}>local dashboard</span>
+
+      {repoId && me ? (
+        <div
+          style={{
+            marginLeft: 8,
+            padding: '6px 10px',
+            border: '1px solid #ddd',
+            borderRadius: 999,
+            background: '#fafafa',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            fontSize: 12,
+          }}
+          title="Current branch in your 'me' worktree"
+        >
+          me: {me.branch} {me.dirty ? <span style={{ color: '#b45309' }}>(dirty)</span> : <span style={{ color: '#0a7' }}>(clean)</span>}
+        </div>
+      ) : null}
+
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+        <Link to="/" style={{ color: '#111' }}>
+          Repos
+        </Link>
+        <Link to="/sessions" style={{ color: '#111' }}>
+          Sessions
+        </Link>
+      </div>
+    </div>
   );
 }
 
@@ -128,7 +187,6 @@ function RepoPage() {
   const [repo, setRepo] = React.useState<Repo | null>(null);
   const [worktrees, setWorktrees] = React.useState<Worktree[]>([]);
   const [sessions, setSessions] = React.useState<any[]>([]);
-  const [me, setMe] = React.useState<{ branch: string; dirty: boolean; meWorktreePath: string } | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -138,12 +196,8 @@ function RepoPage() {
         const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${id}/worktrees`);
         setRepo(data.repo);
         setWorktrees(data.worktrees);
-        const [s, m] = await Promise.all([
-          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`),
-          apiGet<{ ok: true; branch: string; dirty: boolean; meWorktreePath: string }>(`/api/repos/${id}/me`),
-        ]);
+        const s = await apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`);
         setSessions(s.sessions);
-        setMe({ branch: m.branch, dirty: m.dirty, meWorktreePath: m.meWorktreePath });
       } catch (e: any) {
         setErr(e.message ?? String(e));
       }
@@ -160,19 +214,7 @@ function RepoPage() {
         <div style={{ color: '#666', fontSize: 12 }}>{repo.path}</div>
       </div>
 
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-          <div style={{ fontWeight: 700 }}>You (me) are on:</div>
-          <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-            {me ? me.branch : '…'} {me?.dirty ? <span style={{ color: '#b45309' }}>(dirty)</span> : <span style={{ color: '#0a7' }}>(clean)</span>}
-          </div>
-        </div>
-        {me ? (
-          <div style={{ marginTop: 6, fontSize: 12, color: '#666', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-            {me.meWorktreePath}
-          </div>
-        ) : null}
-      </div>
+      {/* me branch status is shown in the global header */}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
         <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
@@ -215,7 +257,6 @@ function RepoPage() {
                   if (!wt.branch) return;
                   try {
                     const res: any = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
-                    setMe({ branch: res.toBranch, dirty: false, meWorktreePath: res.meWorktreePath });
                     alert(`Jumped me worktree to ${wt.branch}`);
                     console.log(res);
                   } catch (e: any) {
