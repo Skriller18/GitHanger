@@ -4,6 +4,7 @@ import { openDb } from './db.js';
 import { registerApi } from './api.js';
 import { registerSessionApi } from './sessions.js';
 import { registerJumpApi } from './jump.js';
+import { registerBranchApi } from './branches.js';
 
 const PORT = Number(process.env.GITHANGER_PORT ?? 4545);
 const HOST = process.env.GITHANGER_HOST ?? '127.0.0.1';
@@ -31,6 +32,7 @@ app.get('/api/sessions/:id/events', async (req) => {
 await registerApi(app, db);
 await registerSessionApi(app, db);
 await registerJumpApi(app, db);
+await registerBranchApi(app, db);
 
 await app.listen({ port: PORT, host: HOST });
 app.log.info(`githanger-server listening on http://${HOST}:${PORT}`);

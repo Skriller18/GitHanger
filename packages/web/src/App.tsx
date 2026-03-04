@@ -14,6 +14,7 @@ import { apiGet, apiPost } from './api';
 import { DiffView } from './DiffView';
 import { SessionsPage } from './SessionsPage';
 import { SessionDetailPage } from './SessionDetailPage';
+import { BranchPage } from './BranchPage';
 
 type Repo = { id: string; name: string; path: string };
 
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/session/:id" element={<SessionDetailPage />} />
           <Route path="/repo/:id" element={<RepoPage />} />
           <Route path="/repo/:id/wt" element={<WorktreePage />} />
+          <Route path="/repo/:id/branch" element={<BranchPage />} />
         </Routes>
       </div>
     </BrowserRouter>
@@ -187,6 +189,7 @@ function RepoPage() {
   const [repo, setRepo] = React.useState<Repo | null>(null);
   const [worktrees, setWorktrees] = React.useState<Worktree[]>([]);
   const [sessions, setSessions] = React.useState<any[]>([]);
+  const [branches, setBranches] = React.useState<Array<{ name: string; upstream: string | null; isHead: boolean }>>([]);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -196,8 +199,13 @@ function RepoPage() {
         const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${id}/worktrees`);
         setRepo(data.repo);
         setWorktrees(data.worktrees);
-        const s = await apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`);
+
+        const [s, b] = await Promise.all([
+          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`),
+          apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean }> }>(`/api/repos/${id}/branches`),
+        ]);
         setSessions(s.sessions);
+        setBranches(b.branches);
       } catch (e: any) {
         setErr(e.message ?? String(e));
       }
@@ -216,7 +224,7 @@ function RepoPage() {
 
       {/* me branch status is shown in the global header */}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Agent sessions</div>
           <div style={{ display: 'grid', gap: 6 }}>
@@ -232,6 +240,30 @@ function RepoPage() {
               </Link>
             ))}
             {!sessions.length ? <div style={{ color: '#666' }}>No sessions for this repo yet.</div> : null}
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Branches</div>
+          <div style={{ display: 'grid', gap: 6, maxHeight: 240, overflow: 'auto' }}>
+            {branches.map((b) => (
+              <Link
+                key={b.name}
+                to={`/repo/${repo.id}/branch?name=${encodeURIComponent(b.name)}&base=main`}
+                style={{ textDecoration: 'none', color: '#111' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12 }}>
+                      {b.name}
+                    </span>
+                    {b.upstream ? <span style={{ marginLeft: 8, color: '#666', fontSize: 12 }}>↔ {b.upstream}</span> : null}
+                  </div>
+                  <div style={{ color: '#666', fontSize: 12 }}>{b.isHead ? 'HEAD' : ''}</div>
+                </div>
+              </Link>
+            ))}
+            {!branches.length ? <div style={{ color: '#666' }}>No local branches found.</div> : null}
           </div>
         </div>
       </div>
