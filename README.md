@@ -16,35 +16,30 @@ Local agent+git dashboard to track **which agent is working on which branch/work
 
 ## Quickstart (run locally)
 
-### 1) Install + build
+### One command setup (install + build + link CLI)
+From the repo root:
 ```bash
 cd GitHanger
-npm install
-npm run build
+npm run setup
 ```
 
-### 2) Install the `githanger` command (one-time)
-This uses `npm link` for local development.
-```bash
-cd packages/cli
-npm link
-```
+This will:
+- `npm install`
+- build TypeScript packages
+- `npm link` the `githanger` command
 
 Verify:
 ```bash
 githanger --help
 ```
 
-### 3) Start the API server + dashboard
-Terminal A (server API):
+### One command start (API + web UI)
+From the repo root:
 ```bash
-npm run -w @githanger/server dev
+githanger start
 ```
 
-Terminal B (web UI):
-```bash
-npm run -w @githanger/web dev
-```
+(Equivalent: `npm run start`)
 
 Open the Vite URL (usually `http://localhost:5173`).
 

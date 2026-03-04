@@ -8,10 +8,15 @@
     "packages/*"
   ],
   "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "start": "concurrently -n server,web -c green,blue \"npm run -w @githanger/server dev\" \"npm run -w @githanger/web dev\"",
     "dev": "npm run -w @githanger/server dev",
     "dev:web": "npm run -w @githanger/web dev",
     "build": "tsc -b && npm run -w @githanger/web build",
     "typecheck": "tsc -b --pretty false --verbose false --noEmit",
     "lint": "npm run -ws lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

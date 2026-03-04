@@ -193,4 +193,12 @@ program
     });
   });
 
+program
+  .command('start')
+  .description('Start API server + web dashboard (run from GitHanger repo root).')
+  .action(async () => {
+    // Assumes you are in the GitHanger repo root where package.json has the start script.
+    await execa('npm', ['run', 'start'], { stdio: 'inherit' });
+  });
+
 await program.parseAsync(process.argv);
