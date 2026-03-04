@@ -17,6 +17,33 @@ program
   .version('0.1.0');
 
 program
+  .command('init')
+  .description('Register a repo for GitHanger to track (branches + worktrees).')
+  .option('--repo <path>', 'Path to git repository (default: cwd)')
+  .option('--name <name>', 'Display name (default: folder name)')
+  .action(async (opts) => {
+    const repoPath = path.resolve(opts.repo ?? process.cwd());
+    if (!fs.existsSync(path.join(repoPath, '.git'))) {
+      throw new Error(`Not a git repo: ${repoPath}`);
+    }
+    const name = String(opts.name ?? path.basename(repoPath));
+
+    const db = openDb(process.env.GITHANGER_DB);
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    // idempotent-ish: if path exists, do nothing.
+    const existing = db.prepare('SELECT id FROM repos WHERE path=?').get(repoPath) as any;
+    if (existing?.id) {
+      console.log(`Repo already registered: ${repoPath} (id=${existing.id})`);
+      return;
+    }
+
+    db.prepare('INSERT INTO repos (id, name, path, createdAt) VALUES (?, ?, ?, ?)').run(id, name, repoPath, now);
+    console.log(`Registered repo: ${name} -> ${repoPath} (id=${id})`);
+  });
+
+program
   .command('run')
   .description('Start a tracked agent session in its own worktree (interactive).')
   .option('--repo <path>', 'Path to git repository (default: cwd)')

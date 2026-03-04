@@ -17,6 +17,13 @@ export function openDb(dbPath?: string): Db {
 
 function migrate(db: Db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS repos (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      createdAt INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
