@@ -128,6 +128,7 @@ function RepoPage() {
   const [repo, setRepo] = React.useState<Repo | null>(null);
   const [worktrees, setWorktrees] = React.useState<Worktree[]>([]);
   const [sessions, setSessions] = React.useState<any[]>([]);
+  const [me, setMe] = React.useState<{ branch: string; dirty: boolean; meWorktreePath: string } | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -137,8 +138,12 @@ function RepoPage() {
         const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${id}/worktrees`);
         setRepo(data.repo);
         setWorktrees(data.worktrees);
-        const s = await apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`);
+        const [s, m] = await Promise.all([
+          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`),
+          apiGet<{ ok: true; branch: string; dirty: boolean; meWorktreePath: string }>(`/api/repos/${id}/me`),
+        ]);
         setSessions(s.sessions);
+        setMe({ branch: m.branch, dirty: m.dirty, meWorktreePath: m.meWorktreePath });
       } catch (e: any) {
         setErr(e.message ?? String(e));
       }
@@ -153,6 +158,20 @@ function RepoPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <h3 style={{ margin: '8px 0 12px' }}>{repo.name}</h3>
         <div style={{ color: '#666', fontSize: 12 }}>{repo.path}</div>
+      </div>
+
+      <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: '10px 12px', marginBottom: 12, background: '#fafafa' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+          <div style={{ fontWeight: 700 }}>You (me) are on:</div>
+          <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+            {me ? me.branch : '…'} {me?.dirty ? <span style={{ color: '#b45309' }}>(dirty)</span> : <span style={{ color: '#0a7' }}>(clean)</span>}
+          </div>
+        </div>
+        {me ? (
+          <div style={{ marginTop: 6, fontSize: 12, color: '#666', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+            {me.meWorktreePath}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
@@ -195,7 +214,8 @@ function RepoPage() {
                 onClick={async () => {
                   if (!wt.branch) return;
                   try {
-                    const res = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
+                    const res: any = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
+                    setMe({ branch: res.toBranch, dirty: false, meWorktreePath: res.meWorktreePath });
                     alert(`Jumped me worktree to ${wt.branch}`);
                     console.log(res);
                   } catch (e: any) {

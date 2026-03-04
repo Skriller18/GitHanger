@@ -54,6 +54,18 @@ async function applyStash(worktreePath: string, stashRef: string) {
 }
 
 export async function registerJumpApi(app: FastifyInstance, db: Db) {
+  app.get('/api/repos/:id/me', async (req) => {
+    const Params = z.object({ id: z.string().min(1) });
+    const { id } = Params.parse((req as any).params);
+    const repo = db.prepare('SELECT * FROM repos WHERE id=?').get(id) as any;
+    if (!repo) return { error: 'repo_not_found' };
+
+    const wtPath = await ensureMeWorktree(repo.path);
+    const branch = await currentBranch(wtPath);
+    const dirty = await hasChanges(wtPath);
+    return { ok: true, meWorktreePath: wtPath, branch, dirty };
+  });
+
   app.post('/api/repos/:id/jump', async (req) => {
     const Params = z.object({ id: z.string().min(1) });
     const Body = z.object({ branch: z.string().min(1) });
