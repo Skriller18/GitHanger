@@ -57,7 +57,7 @@ export async function registerApi(app: FastifyInstance, db: Db) {
       base: z.string().optional(),
     });
     const q = Query.parse((req as any).query);
-    const text = await unifiedDiff(q.worktreePath, { cached: q.cached, base: q.base });
+    const text = await unifiedDiff(q.worktreePath, { cached: q.cached, base: q.base, includeUntracked: !q.cached });
     const files = parseDiff(text);
     return { files };
   });

@@ -100,9 +100,47 @@ export async function commitLog(worktreePath: string, limit = 50) {
     });
 }
 
-export async function unifiedDiff(worktreePath: string, params: { cached?: boolean; base?: string } = {}) {
+export async function unifiedDiff(
+  worktreePath: string,
+  params: { cached?: boolean; base?: string; includeUntracked?: boolean } = {}
+) {
   const args = ['-C', worktreePath, 'diff', '--no-color', '--patch', '--unified=3'];
   if (params.cached) args.push('--cached');
   if (params.base) args.push(params.base);
-  return await git(args);
+  let text = await git(args);
+
+  // `git diff` does NOT include untracked files. If requested, synthesize diffs for them.
+  if (!params.cached && params.includeUntracked) {
+    const status = await git(['-C', worktreePath, 'status', '--porcelain=v1']);
+    const untracked = status
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .filter((l) => l.startsWith('?? '))
+      .map((l) => l.slice(3));
+
+    for (const p of untracked) {
+      // Show new file as diff from /dev/null.
+      try {
+        const u = await git([
+          '-C',
+          worktreePath,
+          'diff',
+          '--no-color',
+          '--patch',
+          '--unified=3',
+          '--no-index',
+          '--',
+          '/dev/null',
+          p,
+        ]);
+        if (u.trim()) {
+          text += (text.endsWith('\n') ? '' : '\n') + u + '\n';
+        }
+      } catch {
+        // best-effort; ignore errors for binary/permission issues
+      }
+    }
+  }
+
+  return text;
 }
