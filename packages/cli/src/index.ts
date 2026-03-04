@@ -136,7 +136,8 @@ program
     );
     insertEvent.run(now, sessionId, 'started', `${provider}:${name} on ${branch}`);
 
-    // Spawn agent, record stdout/stderr events, but still print to your terminal.
+    // Spawn agent in FULL interactive TTY mode by default.
+    // (Some CLIs like `claude` decide interactivity based on stdout being a TTY.)
     const child = execa(cmd, cmdArgs, {
       cwd: worktreePath,
       env: {
@@ -147,21 +148,10 @@ program
         GITHANGER_WORKTREE: worktreePath,
         GITHANGER_BRANCH: branch,
       },
-      stdout: 'pipe',
-      stderr: 'pipe',
-      stdin: 'inherit',
+      stdio: 'inherit',
     });
 
     db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
-
-    const writeLine = (kind: 'stdout' | 'stderr') => (buf: Buffer) => {
-      const text = buf.toString('utf8');
-      process[kind === 'stdout' ? 'stdout' : 'stderr'].write(text);
-      insertEvent.run(Date.now(), sessionId, kind, text.slice(-4000));
-    };
-
-    child.stdout?.on('data', writeLine('stdout'));
-    child.stderr?.on('data', writeLine('stderr'));
 
     const heartbeat = setInterval(() => {
       insertEvent.run(Date.now(), sessionId, 'heartbeat', 'running');

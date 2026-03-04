@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiGet } from './api';
+import { apiGet, apiPost } from './api';
 
 type Session = {
   id: string;
@@ -47,15 +47,53 @@ export function SessionDetailPage() {
         <div style={{ color: '#666' }}>{session.status}</div>
       </div>
 
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-        <div><b>Provider:</b> {session.provider}</div>
-        <div><b>Branch:</b> {session.branch}</div>
-        <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12, color: '#666', marginTop: 6 }}>
-          {session.worktreePath}
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <Link to={`/repo/unknown/wt?path=${encodeURIComponent(session.worktreePath)}`}>View worktree diff/commits</Link>
-          <div style={{ fontSize: 12, color: '#666' }}>(repo id wiring coming next; this link still opens the worktree page)</div>
+      <div className="gh-card" style={{ marginBottom: 16 }}>
+        <div className="gh-card-body">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div><b>Provider:</b> {session.provider}</div>
+              <div><b>Branch:</b> {session.branch}</div>
+              <div className="gh-code gh-muted" style={{ marginTop: 8 }}>{session.worktreePath}</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <button
+                className="gh-btn-primary"
+                disabled={session.status !== 'running' || !session.pid}
+                onClick={async () => {
+                  const ok = confirm(`Terminate session?\n\n${session.name} (pid=${session.pid ?? '—'})`);
+                  if (!ok) return;
+                  const res: any = await apiPost(`/api/sessions2/${session.id}/terminate`, {});
+                  if (!res.ok) alert(res.message ?? res.error ?? 'terminate failed');
+                  window.location.reload();
+                }}
+              >
+                Terminate
+              </button>
+
+              <button
+                onClick={async () => {
+                  const ok = confirm(`Delete session record (and remove worktree if managed)?\n\n${session.name}`);
+                  if (!ok) return;
+                  const res: any = await apiPost(`/api/sessions2/${session.id}/delete`, { removeWorktree: true });
+                  if (res.worktreeRemoveError) alert(`Worktree remove error: ${res.worktreeRemoveError}`);
+                  window.location.href = '/sessions';
+                }}
+                style={{ background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            <Link to={`/repo/unknown/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
+              View worktree diff/commits
+            </Link>
+            <div className="gh-muted" style={{ fontSize: 12, marginTop: 6 }}>
+              (repo id wiring coming next; this link still opens the worktree page)
+            </div>
+          </div>
         </div>
       </div>
 
