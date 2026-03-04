@@ -23,50 +23,103 @@ type DiffFile = {
 
 export function DiffView(props: { files: DiffFile[]; title?: string }) {
   const [active, setActive] = React.useState<number>(0);
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
+  const [viewed, setViewed] = React.useState<Record<string, boolean>>({});
+
   const file = props.files[active];
+  const fileKey = (f: DiffFile) => (f.to || f.from || '').toString();
 
   React.useEffect(() => {
     setActive(0);
   }, [props.files.length]);
 
+  React.useEffect(() => {
+    if (!file) return;
+    setViewed((v) => ({ ...v, [fileKey(file)]: true }));
+  }, [file?.to, file?.from]);
+
   if (!props.files.length) {
-    return <div className="gh-muted" style={{ padding: 12 }}>No diff</div>;
+    return (
+      <div className="gh-card">
+        {props.title ? <div className="gh-card-header">{props.title}</div> : null}
+        <div className="gh-card-body gh-muted">No diff</div>
+      </div>
+    );
   }
 
+  const key = fileKey(file);
+  const isCollapsed = !!collapsed[key];
+
   return (
-    <div className="gh-card" style={{ height: 520 }}>
-      {props.title ? <div className="gh-card-header">{props.title}</div> : null}
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: props.title ? 480 : 520 }}>
-        <div style={{ borderRight: '1px solid var(--border)', overflow: 'auto' }}>
-          {props.files.map((f, i) => (
+    <div className="gh-card" style={{ height: 560 }}>
+      {props.title ? (
+        <div className="gh-card-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <span>{props.title}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
             <button
-              key={i}
-              onClick={() => setActive(i)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                padding: '10px 12px',
-                border: 'none',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-                background: i === active ? 'rgba(124, 58, 237, 0.18)' : 'transparent',
-                cursor: 'pointer',
+              onClick={() => {
+                const next: Record<string, boolean> = {};
+                for (const f of props.files) next[fileKey(f)] = true;
+                setCollapsed(next);
               }}
             >
-              <div className="gh-code" style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {f.to || f.from}
-              </div>
+              Collapse all
             </button>
-          ))}
+            <button onClick={() => setCollapsed({})}>Expand all</button>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', height: props.title ? 520 : 560 }}>
+        <div style={{ borderRight: '1px solid var(--border)', overflow: 'auto' }}>
+          {props.files.map((f, i) => {
+            const k = fileKey(f);
+            const v = !!viewed[k];
+            const c = !!collapsed[k];
+            return (
+              <div key={k} style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <button
+                  onClick={() => setActive(i)}
+                  style={{
+                    flex: 1,
+                    textAlign: 'left',
+                    padding: '10px 12px',
+                    border: 'none',
+                    background: i === active ? 'rgba(124, 58, 237, 0.18)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div className="gh-code" style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: v ? 0.9 : 1 }}>
+                    {f.to || f.from}
+                  </div>
+                  <div className="gh-muted" style={{ fontSize: 11, marginTop: 4 }}>{v ? 'viewed' : 'new'}</div>
+                </button>
+
+                <button
+                  title={c ? 'Expand file' : 'Collapse file'}
+                  onClick={() => setCollapsed((m) => ({ ...m, [k]: !m[k] }))}
+                  style={{ borderLeft: '1px solid rgba(255,255,255,0.06)', borderRadius: 0 }}
+                >
+                  {c ? '+' : '–'}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         <div style={{ overflow: 'auto' }}>
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 800 }}>
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 900, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="gh-code">{file.to || file.from}</span>
+            <button onClick={() => setCollapsed((m) => ({ ...m, [key]: !m[key] }))}>{isCollapsed ? 'Expand' : 'Collapse'}</button>
           </div>
           <div style={{ padding: 12 }}>
-            <div className="gh-code" style={{ fontSize: 12, lineHeight: 1.55 }}>
-              {file.chunks.flatMap((c, idx) => renderChunk(c, idx))}
-            </div>
+            {isCollapsed ? (
+              <div className="gh-muted">(collapsed)</div>
+            ) : (
+              <div className="gh-code" style={{ fontSize: 12, lineHeight: 1.55 }}>
+                {file.chunks.flatMap((c, idx) => renderChunk(c, idx))}
+              </div>
+            )}
           </div>
         </div>
       </div>

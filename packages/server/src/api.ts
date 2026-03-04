@@ -44,9 +44,13 @@ export async function registerApi(app: FastifyInstance, db: Db) {
   });
 
   app.get('/api/commits', async (req) => {
-    const Query = z.object({ worktreePath: z.string().min(1), limit: z.coerce.number().int().min(1).max(200).optional() });
+    const Query = z.object({
+      worktreePath: z.string().min(1),
+      limit: z.coerce.number().int().min(1).max(200).optional(),
+      skip: z.coerce.number().int().min(0).max(100000).optional(),
+    });
     const q = Query.parse((req as any).query);
-    const commits = await commitLog(q.worktreePath, q.limit ?? 50);
+    const commits = await commitLog(q.worktreePath, q.limit ?? 50, q.skip ?? 0);
     return { commits };
   });
 

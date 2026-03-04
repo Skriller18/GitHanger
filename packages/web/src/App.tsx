@@ -349,6 +349,9 @@ function WorktreePage() {
   const repoId = id ?? params.get('repoId') ?? '';
 
   const [commits, setCommits] = React.useState<Commit[]>([]);
+  const [commitSkip, setCommitSkip] = React.useState(0);
+  const [commitHasMore, setCommitHasMore] = React.useState(true);
+  const COMMIT_PAGE = 10;
   const [files, setFiles] = React.useState<DiffFile[]>([]);
   const [filesCached, setFilesCached] = React.useState<DiffFile[]>([]);
   const [info, setInfo] = React.useState<{ branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null } | null>(null);
@@ -358,7 +361,7 @@ function WorktreePage() {
     setErr(null);
     try {
       const [c, d, s, i] = await Promise.all([
-        apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=50`),
+        apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=${COMMIT_PAGE}&skip=${commitSkip}`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}&cached=true`),
         repoId
@@ -367,7 +370,8 @@ function WorktreePage() {
             )
           : Promise.resolve({ ok: true, branch: '(unknown)', upstream: null, ahead: 0, behind: 0, lastPushTime: null }),
       ]);
-      setCommits(c.commits);
+      setCommits((prev) => (commitSkip === 0 ? c.commits : [...prev, ...c.commits]));
+      setCommitHasMore(c.commits.length === COMMIT_PAGE);
       setFiles(d.files);
       setFilesCached(s.files);
       setInfo({ branch: i.branch, upstream: i.upstream, ahead: i.ahead, behind: i.behind, lastPushTime: i.lastPushTime });
@@ -377,8 +381,15 @@ function WorktreePage() {
   }
 
   React.useEffect(() => {
-    refreshAll();
+    setCommitSkip(0);
+    setCommits([]);
+    setCommitHasMore(true);
   }, [wtPath]);
+
+  React.useEffect(() => {
+    // Load commits page-by-page
+    refreshAll();
+  }, [wtPath, commitSkip]);
 
   return (
     <div>
@@ -461,12 +472,28 @@ function WorktreePage() {
 
       <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 16 }}>
         <div className="gh-card">
-          <div className="gh-card-header">Recent commits</div>
-          <div className="gh-card-body" style={{ display: 'grid', gap: 8 }}>
+          <div className="gh-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+            <span>Recent commits</span>
+            {commitHasMore ? (
+              <button
+                onClick={async () => {
+                  setCommitSkip((s) => s + COMMIT_PAGE);
+                }}
+              >
+                Load more
+              </button>
+            ) : (
+              <span className="gh-muted" style={{ fontSize: 12 }}>end</span>
+            )}
+          </div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10, maxHeight: 260, overflow: 'auto' }}>
             {commits.map((c) => (
               <div key={c.hash} style={{ fontSize: 12 }}>
-                <span className="gh-code">{c.hash.slice(0, 8)}</span>
-                <span style={{ marginLeft: 8 }}>{c.subject}</span>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                  <span className="gh-code" style={{ fontWeight: 800 }}>{c.hash.slice(0, 8)}</span>
+                  <span style={{ fontWeight: 600 }}>{c.subject}</span>
+                </div>
+                <div className="gh-muted" style={{ fontSize: 11, marginTop: 4 }}>{new Date(c.ts).toLocaleString()}</div>
               </div>
             ))}
             {!commits.length ? <div className="gh-muted">No commits found.</div> : null}

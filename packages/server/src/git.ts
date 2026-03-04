@@ -86,10 +86,12 @@ export async function push(worktreePath: string) {
   return await git(['-C', worktreePath, 'push']);
 }
 
-export async function commitLog(worktreePath: string, limit = 50) {
+export async function commitLog(worktreePath: string, limit = 50, skip = 0) {
   // hash|ts|subject
   const fmt = '%H|%ct|%s';
-  const out = await git(['-C', worktreePath, 'log', `-n`, String(limit), `--pretty=format:${fmt}`]);
+  const args = ['-C', worktreePath, 'log', `-n`, String(limit), `--pretty=format:${fmt}`];
+  if (skip > 0) args.push('--skip', String(skip));
+  const out = await git(args);
   return out
     .split('\n')
     .map((l) => l.trim())

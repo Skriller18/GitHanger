@@ -18,10 +18,12 @@ async function listLocalBranches(repoPath: string) {
     });
 }
 
-async function branchCommits(repoPath: string, branch: string, base: string, limit: number) {
+async function branchCommits(repoPath: string, branch: string, base: string, limit: number, skip: number) {
   const fmt = '%H|%ct|%s';
   // commits reachable from branch but not base
-  const out = await git(['-C', repoPath, 'log', `${base}..${branch}`, '-n', String(limit), `--pretty=format:${fmt}`]);
+  const args = ['-C', repoPath, 'log', `${base}..${branch}`, '-n', String(limit), `--pretty=format:${fmt}`];
+  if (skip > 0) args.push('--skip', String(skip));
+  const out = await git(args);
   return out
     .split('\n')
     .map((l) => l.trim())
@@ -55,6 +57,7 @@ export async function registerBranchApi(app: FastifyInstance, db: Db) {
       name: z.string().min(1),
       base: z.string().min(1).default('main'),
       limit: z.coerce.number().int().min(1).max(200).default(50),
+      skip: z.coerce.number().int().min(0).max(100000).default(0),
     });
 
     const { id } = Params.parse((req as any).params);
@@ -63,7 +66,7 @@ export async function registerBranchApi(app: FastifyInstance, db: Db) {
     const repo = db.prepare('SELECT * FROM repos WHERE id=?').get(id) as any;
     if (!repo) return { error: 'repo_not_found' };
 
-    const commits = await branchCommits(repo.path, q.name, q.base, q.limit);
+    const commits = await branchCommits(repo.path, q.name, q.base, q.limit, q.skip);
     return { commits };
   });
 
