@@ -141,34 +141,26 @@ function ReposPage() {
     <div>
       <h3 style={{ margin: '8px 0 12px' }}>Repos</h3>
 
-      <form onSubmit={onAdd} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
-        <input placeholder="/path/to/repo" value={path} onChange={(e) => setPath(e.target.value)} style={{ flex: 2 }} />
-        <button type="submit">Add</button>
+      <form onSubmit={onAdd} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 10, marginBottom: 16 }}>
+        <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="/path/to/repo" value={path} onChange={(e) => setPath(e.target.value)} />
+        <button type="submit" className="gh-btn-primary">Add repo</button>
       </form>
 
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
 
-      <div style={{ display: 'grid', gap: 8 }}>
+      <div className="gh-grid">
         {repos.map((r) => (
-          <Link
-            key={r.id}
-            to={`/repo/${r.id}`}
-            style={{
-              border: '1px solid #ddd',
-              borderRadius: 8,
-              padding: 12,
-              textDecoration: 'none',
-              color: '#111',
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>{r.name}</div>
-            <div style={{ color: '#666', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-              {r.path}
+          <Link key={r.id} to={`/repo/${r.id}`} className="gh-card gh-row-hover" style={{ display: 'block' }}>
+            <div className="gh-card-body">
+              <div style={{ fontWeight: 900 }}>{r.name}</div>
+              <div className="gh-code gh-muted" style={{ marginTop: 6 }}>
+                {r.path}
+              </div>
             </div>
           </Link>
         ))}
-        {!repos.length ? <div style={{ color: '#666' }}>No repos registered yet.</div> : null}
+        {!repos.length ? <div className="gh-muted">No repos registered yet.</div> : null}
       </div>
     </div>
   );
@@ -207,93 +199,116 @@ function RepoPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <h3 style={{ margin: '8px 0 12px' }}>{repo.name}</h3>
-        <div style={{ color: '#666', fontSize: 12 }}>{repo.path}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <div className="gh-title">{repo.name}</div>
+        <div className="gh-code gh-subtitle" style={{ maxWidth: 820, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {repo.path}
+        </div>
       </div>
 
       {/* me branch status is shown in the global header */}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Agent sessions</div>
-          <div style={{ display: 'grid', gap: 6 }}>
+      <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 12 }}>
+        <div className="gh-card">
+          <div className="gh-card-header">Agent sessions</div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10, minHeight: 120 }}>
             {sessions.map((s) => (
-              <Link key={s.id} to={`/session/${s.id}`} style={{ textDecoration: 'none', color: '#111' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <Link key={s.id} to={`/session/${s.id}`} className="gh-row-hover" style={{ padding: 10, borderRadius: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
                   <div>
-                    <b>{s.name}</b> <span style={{ color: '#666' }}>({s.provider})</span>
-                    <div style={{ color: '#666', fontSize: 12 }}>{s.branch}</div>
+                    <div style={{ fontWeight: 800 }}>
+                      {s.name} <span className="gh-muted" style={{ fontWeight: 600 }}>({s.provider})</span>
+                    </div>
+                    <div className="gh-muted gh-code" style={{ marginTop: 4 }}>{s.branch}</div>
                   </div>
-                  <div style={{ color: s.status === 'running' ? '#0a7' : s.status === 'crashed' ? 'crimson' : '#666' }}>{s.status}</div>
+                  <div style={{ color: s.status === 'running' ? 'var(--accent2)' : s.status === 'crashed' ? 'var(--danger)' : 'var(--muted)', fontWeight: 800 }}>
+                    {s.status}
+                  </div>
                 </div>
               </Link>
             ))}
-            {!sessions.length ? <div style={{ color: '#666' }}>No sessions for this repo yet.</div> : null}
+            {!sessions.length ? <div className="gh-muted">No sessions for this repo yet.</div> : null}
           </div>
         </div>
 
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Branches</div>
-          <div style={{ display: 'grid', gap: 6, maxHeight: 240, overflow: 'auto' }}>
+        <div className="gh-card">
+          <div className="gh-card-header">Branches</div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 8, maxHeight: 280, overflow: 'auto' }}>
             {branches.map((b) => (
               <Link
                 key={b.name}
                 to={`/repo/${repo.id}/branch?name=${encodeURIComponent(b.name)}&base=main`}
-                style={{ textDecoration: 'none', color: '#111' }}
+                className="gh-row-hover"
+                style={{ padding: 10, borderRadius: 10 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <div>
-                    <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="gh-code" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {b.name}
-                    </span>
-                    {b.upstream ? <span style={{ marginLeft: 8, color: '#666', fontSize: 12 }}>↔ {b.upstream}</span> : null}
+                    </div>
+                    {b.upstream ? <div className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>upstream: {b.upstream}</div> : null}
                   </div>
-                  <div style={{ color: '#666', fontSize: 12 }}>{b.isHead ? 'HEAD' : ''}</div>
+                  <div className="gh-muted" style={{ fontSize: 12, fontWeight: 800 }}>{b.isHead ? 'HEAD' : ''}</div>
                 </div>
               </Link>
             ))}
-            {!branches.length ? <div style={{ color: '#666' }}>No local branches found.</div> : null}
+            {!branches.length ? <div className="gh-muted">No local branches found.</div> : null}
           </div>
         </div>
       </div>
 
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 120px', gap: 0, padding: '10px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
-          <div>Worktree / Branch</div>
-          <div>Dirty files</div>
-          <div>Jump (me)</div>
-          <div>Open</div>
+      <div className="gh-card">
+        <div className="gh-card-header">Worktrees</div>
+        <div style={{ overflow: 'auto' }}>
+          <table className="gh-table">
+            <thead>
+              <tr>
+                <th style={{ width: '70%' }}>Worktree</th>
+                <th style={{ width: 120 }}>Dirty</th>
+                <th style={{ width: 120 }}>Jump</th>
+                <th style={{ width: 120 }}>Open</th>
+              </tr>
+            </thead>
+            <tbody>
+              {worktrees.map((wt) => (
+                <tr key={wt.path} className="gh-row-hover">
+                  <td>
+                    <div className="gh-code" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 900 }}>
+                      {wt.path}
+                    </div>
+                    <div className="gh-muted" style={{ marginTop: 4, fontSize: 12 }}>
+                      {wt.branch ?? '(detached HEAD)'}
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 800 }}>{wt.dirtyCount}</td>
+                  <td>
+                    <button
+                      className="gh-btn-primary"
+                      disabled={!wt.branch}
+                      onClick={async () => {
+                        if (!wt.branch) return;
+                        try {
+                          const res: any = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
+                          // TODO: replace with toast
+                          alert(res.applyError ? `Jumped, but stash apply failed: ${res.applyError}` : `Jumped me to ${wt.branch}`);
+                        } catch (e: any) {
+                          alert(e.message ?? String(e));
+                        }
+                      }}
+                    >
+                      Jump
+                    </button>
+                  </td>
+                  <td>
+                    <Link to={`/repo/${repo.id}/wt?path=${encodeURIComponent(wt.path)}`} className="gh-pill">
+                      View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {worktrees.map((wt) => (
-          <div key={wt.path} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 120px', padding: '10px 12px', borderBottom: '1px solid #f1f1f1' }}>
-            <div>
-              <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12 }}>{wt.path}</div>
-              <div style={{ color: '#666', marginTop: 4 }}>{wt.branch ?? '(detached HEAD)'}</div>
-            </div>
-            <div>{wt.dirtyCount}</div>
-            <div>
-              <button
-                disabled={!wt.branch}
-                onClick={async () => {
-                  if (!wt.branch) return;
-                  try {
-                    const res: any = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
-                    alert(`Jumped me worktree to ${wt.branch}`);
-                    console.log(res);
-                  } catch (e: any) {
-                    alert(e.message ?? String(e));
-                  }
-                }}
-              >
-                Jump
-              </button>
-            </div>
-            <div>
-              <Link to={`/repo/${repo.id}/wt?path=${encodeURIComponent(wt.path)}`}>View</Link>
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

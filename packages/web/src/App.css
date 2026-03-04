@@ -81,3 +81,31 @@
 .gh-btn-primary:hover {
   background: rgba(124, 58, 237, 0.33);
 }
+
+.gh-btn-link {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.gh-btn-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gh-row-hover:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.gh-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.gh-title {
+  font-size: 20px;
+  font-weight: 900;
+  margin: 10px 0 14px;
+}
+
+.gh-subtitle {
+  color: var(--muted);
+  font-size: 12px;
+}
