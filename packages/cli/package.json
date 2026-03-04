@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "githanger": "dist/index.js"
+    "githanger": "bin/githanger.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
