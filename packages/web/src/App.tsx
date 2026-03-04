@@ -348,24 +348,31 @@ function WorktreePage() {
   const [commits, setCommits] = React.useState<Commit[]>([]);
   const [files, setFiles] = React.useState<DiffFile[]>([]);
   const [filesCached, setFilesCached] = React.useState<DiffFile[]>([]);
+  const [info, setInfo] = React.useState<{ branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null } | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
+  async function refreshAll() {
+    setErr(null);
+    try {
+      const [c, d, s, i] = await Promise.all([
+        apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=50`),
+        apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}`),
+        apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}&cached=true`),
+        apiGet<{ ok: true; branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null }>(
+          `/api/worktree/info?repoId=${encodeURIComponent(id ?? '')}&worktreePath=${encodeURIComponent(wtPath)}`
+        ),
+      ]);
+      setCommits(c.commits);
+      setFiles(d.files);
+      setFilesCached(s.files);
+      setInfo({ branch: i.branch, upstream: i.upstream, ahead: i.ahead, behind: i.behind, lastPushTime: i.lastPushTime });
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    }
+  }
+
   React.useEffect(() => {
-    (async () => {
-      setErr(null);
-      try {
-        const [c, d, s] = await Promise.all([
-          apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=50`),
-          apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}`),
-          apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}&cached=true`),
-        ]);
-        setCommits(c.commits);
-        setFiles(d.files);
-        setFilesCached(s.files);
-      } catch (e: any) {
-        setErr(e.message ?? String(e));
-      }
-    })();
+    refreshAll();
   }, [wtPath]);
 
   return (
@@ -373,41 +380,104 @@ function WorktreePage() {
       <button onClick={() => nav(`/repo/${id}`)} style={{ marginBottom: 12 }}>
         ← Back
       </button>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 700 }}>Worktree</div>
-        <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12, color: '#666' }}>{wtPath}</div>
+
+      <div className="gh-card" style={{ marginBottom: 12 }}>
+        <div className="gh-card-body" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontWeight: 900 }}>Worktree</div>
+            <div className="gh-code gh-muted" style={{ marginTop: 6 }}>{wtPath}</div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {info ? (
+              <span className="gh-pill">
+                {info.branch} · {info.behind} behind / {info.ahead} ahead
+              </span>
+            ) : null}
+            {info?.upstream ? <span className="gh-pill">upstream: {info.upstream}</span> : <span className="gh-pill">no upstream</span>}
+            {typeof info?.lastPushTime === 'number' ? (
+              <span className="gh-pill">last push: {new Date(info.lastPushTime).toLocaleString()}</span>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Recent commits</div>
-          <div style={{ display: 'grid', gap: 6 }}>
+      <div className="gh-card" style={{ marginBottom: 12 }}>
+        <div className="gh-card-header">Git actions</div>
+        <div className="gh-card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="gh-btn-primary"
+            onClick={async () => {
+              await apiPost('/api/worktree/stage', { repoId: id, worktreePath: wtPath });
+              await refreshAll();
+            }}
+          >
+            Stage all
+          </button>
+
+          <button
+            onClick={async () => {
+              const message = prompt('Commit message:');
+              if (!message) return;
+              await apiPost('/api/worktree/commit', { repoId: id, worktreePath: wtPath, message });
+              await refreshAll();
+            }}
+          >
+            Commit
+          </button>
+
+          <button
+            onClick={async () => {
+              await apiPost('/api/worktree/pull', { repoId: id, worktreePath: wtPath });
+              await refreshAll();
+            }}
+          >
+            Pull
+          </button>
+
+          <button
+            onClick={async () => {
+              await apiPost('/api/worktree/push', { repoId: id, worktreePath: wtPath });
+              await refreshAll();
+            }}
+          >
+            Push
+          </button>
+        </div>
+      </div>
+
+      <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 16 }}>
+        <div className="gh-card">
+          <div className="gh-card-header">Recent commits</div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 8 }}>
             {commits.map((c) => (
               <div key={c.hash} style={{ fontSize: 12 }}>
-                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>{c.hash.slice(0, 8)}</span>
+                <span className="gh-code">{c.hash.slice(0, 8)}</span>
                 <span style={{ marginLeft: 8 }}>{c.subject}</span>
               </div>
             ))}
-            {!commits.length ? <div style={{ color: '#666' }}>No commits found.</div> : null}
+            {!commits.length ? <div className="gh-muted">No commits found.</div> : null}
           </div>
         </div>
 
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Diff summary</div>
-          <div style={{ fontSize: 12, color: '#666' }}>Uncommitted files: {files.length}</div>
-          <div style={{ fontSize: 12, color: '#666' }}>Staged files: {filesCached.length}</div>
+        <div className="gh-card">
+          <div className="gh-card-header">Diff summary</div>
+          <div className="gh-card-body">
+            <div className="gh-muted" style={{ fontSize: 12 }}>Uncommitted files: {files.length}</div>
+            <div className="gh-muted" style={{ fontSize: 12 }}>Staged files: {filesCached.length}</div>
+          </div>
         </div>
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Uncommitted diff</div>
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Uncommitted diff</div>
         <DiffView files={files as any} />
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Staged diff</div>
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Staged diff</div>
         <DiffView files={filesCached as any} />
       </div>
     </div>

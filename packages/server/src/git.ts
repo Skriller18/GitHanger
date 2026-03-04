@@ -36,6 +36,56 @@ export async function statusPorcelain(worktreePath: string) {
   return await git(['-C', worktreePath, 'status', '--porcelain=v1']);
 }
 
+export async function currentBranch(worktreePath: string) {
+  const out = await git(['-C', worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD']);
+  return out.trim();
+}
+
+export async function upstream(worktreePath: string) {
+  try {
+    const out = await git(['-C', worktreePath, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+    return out.trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function aheadBehind(worktreePath: string) {
+  const u = await upstream(worktreePath);
+  if (!u) return { upstream: null as string | null, ahead: 0, behind: 0 };
+  const out = await git(['-C', worktreePath, 'rev-list', '--left-right', '--count', `${u}...HEAD`]);
+  const [behindStr, aheadStr] = out.trim().split(/\s+/);
+  return { upstream: u, ahead: Number(aheadStr ?? 0), behind: Number(behindStr ?? 0) };
+}
+
+export async function lastUpstreamCommitTime(worktreePath: string) {
+  const u = await upstream(worktreePath);
+  if (!u) return null;
+  try {
+    const out = await git(['-C', worktreePath, 'log', '-1', `--format=%ct`, u]);
+    const ts = Number(out.trim());
+    return Number.isFinite(ts) && ts > 0 ? ts * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function stageAll(worktreePath: string) {
+  await git(['-C', worktreePath, 'add', '-A']);
+}
+
+export async function commit(worktreePath: string, message: string) {
+  return await git(['-C', worktreePath, 'commit', '-m', message]);
+}
+
+export async function pull(worktreePath: string) {
+  return await git(['-C', worktreePath, 'pull']);
+}
+
+export async function push(worktreePath: string) {
+  return await git(['-C', worktreePath, 'push']);
+}
+
 export async function commitLog(worktreePath: string, limit = 50) {
   // hash|ts|subject
   const fmt = '%H|%ct|%s';
