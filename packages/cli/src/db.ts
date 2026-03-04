@@ -42,6 +42,14 @@ export function openDb(dbPath?: string): Db {
       FOREIGN KEY(sessionId) REFERENCES sessions(id)
     );
 
+    CREATE TABLE IF NOT EXISTS branch_stashes (
+      repoPath TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      stashRef TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, branch)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_events_session_ts ON events(sessionId, ts);
   `);
   return db;

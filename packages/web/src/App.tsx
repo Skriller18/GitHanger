@@ -176,18 +176,36 @@ function RepoPage() {
       </div>
 
       <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px 120px', gap: 0, padding: '10px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 120px', gap: 0, padding: '10px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 600 }}>
           <div>Worktree / Branch</div>
           <div>Dirty files</div>
+          <div>Jump (me)</div>
           <div>Open</div>
         </div>
         {worktrees.map((wt) => (
-          <div key={wt.path} style={{ display: 'grid', gridTemplateColumns: '1fr 180px 120px', padding: '10px 12px', borderBottom: '1px solid #f1f1f1' }}>
+          <div key={wt.path} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 160px 120px', padding: '10px 12px', borderBottom: '1px solid #f1f1f1' }}>
             <div>
               <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontSize: 12 }}>{wt.path}</div>
               <div style={{ color: '#666', marginTop: 4 }}>{wt.branch ?? '(detached HEAD)'}</div>
             </div>
             <div>{wt.dirtyCount}</div>
+            <div>
+              <button
+                disabled={!wt.branch}
+                onClick={async () => {
+                  if (!wt.branch) return;
+                  try {
+                    const res = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
+                    alert(`Jumped me worktree to ${wt.branch}`);
+                    console.log(res);
+                  } catch (e: any) {
+                    alert(e.message ?? String(e));
+                  }
+                }}
+              >
+                Jump
+              </button>
+            </div>
             <div>
               <Link to={`/repo/${repo.id}/wt?path=${encodeURIComponent(wt.path)}`}>View</Link>
             </div>
