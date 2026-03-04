@@ -21,6 +21,7 @@ export function SessionDetailPage() {
   const { id } = useParams();
   const [session, setSession] = React.useState<Session | null>(null);
   const [events, setEvents] = React.useState<Event[]>([]);
+  const [repoId, setRepoId] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -31,6 +32,13 @@ export function SessionDetailPage() {
         if (data.error) throw new Error(data.error);
         setSession(data.session ?? null);
         setEvents(data.events ?? []);
+
+        // resolve repoId by repoPath so we can link to worktree page safely.
+        if (data.session?.repoPath) {
+          const r = await apiGet<{ repos: Array<{ id: string; path: string }> }>('/api/repos');
+          const match = r.repos.find((x) => x.path === data.session!.repoPath);
+          setRepoId(match?.id ?? null);
+        }
       } catch (e: any) {
         setErr(e.message ?? String(e));
       }
@@ -87,12 +95,20 @@ export function SessionDetailPage() {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <Link to={`/repo/unknown/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
-              View worktree diff/commits
-            </Link>
-            <div className="gh-muted" style={{ fontSize: 12, marginTop: 6 }}>
-              (repo id wiring coming next; this link still opens the worktree page)
-            </div>
+            {repoId ? (
+              <Link to={`/repo/${repoId}/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
+                View worktree diff/commits
+              </Link>
+            ) : (
+              <Link to={`/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
+                View worktree diff/commits
+              </Link>
+            )}
+            {!repoId ? (
+              <div className="gh-muted" style={{ fontSize: 12, marginTop: 6 }}>
+                (Repo not registered yet; actions may be limited)
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

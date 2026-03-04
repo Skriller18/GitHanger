@@ -48,6 +48,7 @@ export default function App() {
           <Route path="/session/:id" element={<SessionDetailPage />} />
           <Route path="/repo/:id" element={<RepoPage />} />
           <Route path="/repo/:id/wt" element={<WorktreePage />} />
+          <Route path="/wt" element={<WorktreePage />} />
           <Route path="/repo/:id/branch" element={<BranchPage />} />
         </Routes>
       </div>
@@ -179,12 +180,13 @@ function RepoPage() {
     (async () => {
       setErr(null);
       try {
-        const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${id}/worktrees`);
-        setRepo(data.repo);
-        setWorktrees(data.worktrees);
+        const data = await apiGet<any>(`/api/repos/${id}/worktrees`);
+        if (!data?.repo) throw new Error(data?.error ?? 'repo_not_found');
+        setRepo(data.repo as Repo);
+        setWorktrees(data.worktrees as Worktree[]);
 
         const [s, b] = await Promise.all([
-          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`),
+          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent((data.repo as Repo).path)}`),
           apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean }> }>(`/api/repos/${id}/branches`),
         ]);
         setSessions(s.sessions);
@@ -344,6 +346,7 @@ function WorktreePage() {
   const nav = useNavigate();
   const params = new URLSearchParams(window.location.search);
   const wtPath = params.get('path') ?? '';
+  const repoId = id ?? params.get('repoId') ?? '';
 
   const [commits, setCommits] = React.useState<Commit[]>([]);
   const [files, setFiles] = React.useState<DiffFile[]>([]);
@@ -358,9 +361,11 @@ function WorktreePage() {
         apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=50`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}&cached=true`),
-        apiGet<{ ok: true; branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null }>(
-          `/api/worktree/info?repoId=${encodeURIComponent(id ?? '')}&worktreePath=${encodeURIComponent(wtPath)}`
-        ),
+        repoId
+          ? apiGet<{ ok: true; branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null }>(
+              `/api/worktree/info?repoId=${encodeURIComponent(repoId)}&worktreePath=${encodeURIComponent(wtPath)}`
+            )
+          : Promise.resolve({ ok: true, branch: '(unknown)', upstream: null, ahead: 0, behind: 0, lastPushTime: null }),
       ]);
       setCommits(c.commits);
       setFiles(d.files);
@@ -377,7 +382,7 @@ function WorktreePage() {
 
   return (
     <div>
-      <button onClick={() => nav(`/repo/${id}`)} style={{ marginBottom: 12 }}>
+      <button onClick={() => (repoId ? nav(`/repo/${repoId}`) : nav(-1))} style={{ marginBottom: 12 }}>
         ← Back
       </button>
 
@@ -409,8 +414,9 @@ function WorktreePage() {
         <div className="gh-card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
             className="gh-btn-primary"
+            disabled={!repoId}
             onClick={async () => {
-              await apiPost('/api/worktree/stage', { repoId: id, worktreePath: wtPath });
+              await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath });
               await refreshAll();
             }}
           >
@@ -418,10 +424,11 @@ function WorktreePage() {
           </button>
 
           <button
+            disabled={!repoId}
             onClick={async () => {
               const message = prompt('Commit message:');
               if (!message) return;
-              await apiPost('/api/worktree/commit', { repoId: id, worktreePath: wtPath, message });
+              await apiPost('/api/worktree/commit', { repoId, worktreePath: wtPath, message });
               await refreshAll();
             }}
           >
@@ -429,8 +436,9 @@ function WorktreePage() {
           </button>
 
           <button
+            disabled={!repoId}
             onClick={async () => {
-              await apiPost('/api/worktree/pull', { repoId: id, worktreePath: wtPath });
+              await apiPost('/api/worktree/pull', { repoId, worktreePath: wtPath });
               await refreshAll();
             }}
           >
@@ -438,13 +446,16 @@ function WorktreePage() {
           </button>
 
           <button
+            disabled={!repoId}
             onClick={async () => {
-              await apiPost('/api/worktree/push', { repoId: id, worktreePath: wtPath });
+              await apiPost('/api/worktree/push', { repoId, worktreePath: wtPath });
               await refreshAll();
             }}
           >
             Push
           </button>
+
+          {!repoId ? <span className="gh-muted" style={{ fontSize: 12 }}>Actions disabled (missing repoId)</span> : null}
         </div>
       </div>
 
