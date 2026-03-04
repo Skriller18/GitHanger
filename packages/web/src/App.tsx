@@ -25,6 +25,7 @@ type Worktree = {
   locked: boolean;
   prunable: boolean;
   dirtyCount: number;
+  isManaged?: boolean;
 };
 
 type Commit = { hash: string; ts: number; subject: string };
@@ -267,6 +268,7 @@ function RepoPage() {
                 <th style={{ width: 120 }}>Dirty</th>
                 <th style={{ width: 120 }}>Jump</th>
                 <th style={{ width: 120 }}>Open</th>
+                <th style={{ width: 120 }}>Remove</th>
               </tr>
             </thead>
             <tbody>
@@ -303,6 +305,29 @@ function RepoPage() {
                     <Link to={`/repo/${repo.id}/wt?path=${encodeURIComponent(wt.path)}`} className="gh-pill">
                       View
                     </Link>
+                  </td>
+                  <td>
+                    {wt.isManaged ? (
+                      <button
+                        onClick={async () => {
+                          const ok = confirm(`Remove worktree?\n\n${wt.path}`);
+                          if (!ok) return;
+                          try {
+                            await apiPost(`/api/repos/${repo.id}/worktrees/remove`, { path: wt.path });
+                            // refresh list
+                            const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${repo.id}/worktrees`);
+                            setWorktrees(data.worktrees);
+                          } catch (e: any) {
+                            alert(e.message ?? String(e));
+                          }
+                        }}
+                        style={{ background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <span className="gh-muted" style={{ fontSize: 12 }}>—</span>
+                    )}
                   </td>
                 </tr>
               ))}

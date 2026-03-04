@@ -35,7 +35,8 @@ export async function registerApi(app: FastifyInstance, db: Db) {
       wts.map(async (wt) => {
         const status = await statusPorcelain(wt.path);
         const dirtyCount = status ? status.split('\n').filter(Boolean).length : 0;
-        return { ...wt, dirtyCount };
+        const isManaged = wt.path.includes(`${repo.path}/.worktrees/githanger/`);
+        return { ...wt, dirtyCount, isManaged };
       })
     );
 

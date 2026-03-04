@@ -39,12 +39,19 @@ async function stashPush(worktreePath: string, msg: string) {
 }
 
 async function checkout(worktreePath: string, branch: string) {
-  // Checkout existing branch or create.
+  // Robust checkout: try existing branch first; if it doesn't exist, create it.
   try {
-    await git(['-C', worktreePath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
     await git(['-C', worktreePath, 'checkout', branch]);
-  } catch {
-    await git(['-C', worktreePath, 'checkout', '-b', branch]);
+    return;
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    // Only create when the branch truly doesn't exist.
+    if (msg.includes('did not match any file') || msg.includes('pathspec') || msg.includes('not found')) {
+      await git(['-C', worktreePath, 'checkout', '-b', branch]);
+      return;
+    }
+    // Otherwise bubble up the real error.
+    throw e;
   }
 }
 
