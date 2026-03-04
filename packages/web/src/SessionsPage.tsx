@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { apiGet } from './api';
+import { useInterval } from './useInterval';
 
 type Session = {
   id: string;
@@ -20,17 +21,26 @@ export function SessionsPage() {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
 
+  async function refresh() {
+    setErr(null);
+    try {
+      const data = await apiGet<{ sessions: Session[] }>('/api/sessions2');
+      setSessions(data.sessions);
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    }
+  }
+
   React.useEffect(() => {
-    (async () => {
-      setErr(null);
-      try {
-        const data = await apiGet<{ sessions: Session[] }>('/api/sessions2');
-        setSessions(data.sessions);
-      } catch (e: any) {
-        setErr(e.message ?? String(e));
-      }
-    })();
+    refresh();
   }, []);
+
+  // Auto-poll so you don't need to reload the page.
+  useInterval(() => {
+    // Avoid spamming refresh when tab is in background.
+    if (document.visibilityState !== 'visible') return;
+    refresh();
+  }, 3000);
 
   return (
     <div>

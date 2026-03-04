@@ -5,6 +5,7 @@ node_modules
 dist
 packages/**/dist
 packages/**/.tsbuildinfo
+*.tsbuildinfo
 packages/web/dist
 
 # logs

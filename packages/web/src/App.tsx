@@ -12,6 +12,7 @@ import {
 import './App.css';
 import { apiGet, apiPost } from './api';
 import { DiffView } from './DiffView';
+import { useInterval } from './useInterval';
 import { SessionsPage } from './SessionsPage';
 import { SessionDetailPage } from './SessionDetailPage';
 import { BranchPage } from './BranchPage';
@@ -64,21 +65,28 @@ function TopBar() {
 
   const [me, setMe] = React.useState<{ branch: string; dirty: boolean } | null>(null);
 
+  async function refreshMe() {
+    if (!repoId) {
+      setMe(null);
+      return;
+    }
+    try {
+      const m = await apiGet<{ ok: true; branch: string; dirty: boolean }>(`/api/repos/${repoId}/me`);
+      setMe({ branch: m.branch, dirty: m.dirty });
+    } catch {
+      setMe(null);
+    }
+  }
+
   React.useEffect(() => {
-    (async () => {
-      if (!repoId) {
-        setMe(null);
-        return;
-      }
-      try {
-        const m = await apiGet<{ ok: true; branch: string; dirty: boolean }>(`/api/repos/${repoId}/me`);
-        setMe({ branch: m.branch, dirty: m.dirty });
-      } catch {
-        setMe(null);
-      }
-    })();
+    refreshMe();
     // re-fetch on path change within repo pages so the header stays fresh after jump.
   }, [repoId, location.pathname]);
+
+  useInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    refreshMe();
+  }, 3000);
 
   return (
     <div className="gh-topbar">
@@ -177,26 +185,33 @@ function RepoPage() {
   const [branches, setBranches] = React.useState<Array<{ name: string; upstream: string | null; isHead: boolean }>>([]);
   const [err, setErr] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    (async () => {
-      setErr(null);
-      try {
-        const data = await apiGet<any>(`/api/repos/${id}/worktrees`);
-        if (!data?.repo) throw new Error(data?.error ?? 'repo_not_found');
-        setRepo(data.repo as Repo);
-        setWorktrees(data.worktrees as Worktree[]);
+  async function refreshRepo() {
+    setErr(null);
+    try {
+      const data = await apiGet<any>(`/api/repos/${id}/worktrees`);
+      if (!data?.repo) throw new Error(data?.error ?? 'repo_not_found');
+      setRepo(data.repo as Repo);
+      setWorktrees(data.worktrees as Worktree[]);
 
-        const [s, b] = await Promise.all([
-          apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent((data.repo as Repo).path)}`),
-          apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean }> }>(`/api/repos/${id}/branches`),
-        ]);
-        setSessions(s.sessions);
-        setBranches(b.branches);
-      } catch (e: any) {
-        setErr(e.message ?? String(e));
-      }
-    })();
+      const [s, b] = await Promise.all([
+        apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent((data.repo as Repo).path)}`),
+        apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean }> }>(`/api/repos/${id}/branches`),
+      ]);
+      setSessions(s.sessions);
+      setBranches(b.branches);
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    }
+  }
+
+  React.useEffect(() => {
+    refreshRepo();
   }, [id]);
+
+  useInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    refreshRepo();
+  }, 3000);
 
   if (err) return <div style={{ color: 'crimson' }}>{err}</div>;
   if (!repo) return <div>Loading…</div>;
@@ -402,6 +417,14 @@ function WorktreePage() {
     // Load commits page-by-page
     refreshAll();
   }, [wtPath, commitSkip]);
+
+  // Auto-poll status/diff/commit head when user is on first page.
+  useInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (!wtPath) return;
+    if (commitSkip !== 0) return;
+    refreshAll();
+  }, 3000);
 
   return (
     <div>

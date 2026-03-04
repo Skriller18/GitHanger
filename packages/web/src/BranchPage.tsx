@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiGet } from './api';
 import { DiffView } from './DiffView';
+import { useInterval } from './useInterval';
 
 type Commit = { hash: string; ts: number; subject: string };
 
@@ -31,26 +32,35 @@ export function BranchPage() {
     setCommitHasMore(true);
   }, [id, branch, base]);
 
+  async function refresh() {
+    setErr(null);
+    try {
+      const [c, d] = await Promise.all([
+        apiGet<{ commits: Commit[] }>(
+          `/api/repos/${id}/branch/commits?name=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}&limit=${COMMIT_PAGE}&skip=${commitSkip}`
+        ),
+        apiGet<{ files: DiffFile[] }>(
+          `/api/repos/${id}/branch/diff?name=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}`
+        ),
+      ]);
+      setCommits((prev) => (commitSkip === 0 ? c.commits : [...prev, ...c.commits]));
+      setCommitHasMore(c.commits.length === COMMIT_PAGE);
+      setFiles(d.files);
+    } catch (e: any) {
+      setErr(e.message ?? String(e));
+    }
+  }
+
   React.useEffect(() => {
-    (async () => {
-      setErr(null);
-      try {
-        const [c, d] = await Promise.all([
-          apiGet<{ commits: Commit[] }>(
-            `/api/repos/${id}/branch/commits?name=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}&limit=${COMMIT_PAGE}&skip=${commitSkip}`
-          ),
-          apiGet<{ files: DiffFile[] }>(
-            `/api/repos/${id}/branch/diff?name=${encodeURIComponent(branch)}&base=${encodeURIComponent(base)}`
-          ),
-        ]);
-        setCommits((prev) => (commitSkip === 0 ? c.commits : [...prev, ...c.commits]));
-        setCommitHasMore(c.commits.length === COMMIT_PAGE);
-        setFiles(d.files);
-      } catch (e: any) {
-        setErr(e.message ?? String(e));
-      }
-    })();
+    refresh();
   }, [id, branch, base, commitSkip]);
+
+  // Auto-poll first page so diff/commits update without reload.
+  useInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (commitSkip !== 0) return; // avoid messing with pagination when user loaded more
+    refresh();
+  }, 3000);
 
   if (!branch) {
     return <div style={{ color: '#666' }}>No branch specified.</div>;
