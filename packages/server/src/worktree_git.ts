@@ -61,13 +61,18 @@ export async function registerWorktreeGitApi(app: FastifyInstance, db: Db) {
   });
 
   app.post('/api/worktree/stage', async (req) => {
-    const Body = z.object({ repoId: z.string().min(1), worktreePath: z.string().min(1) });
+    const Body = z.object({ repoId: z.string().min(1), worktreePath: z.string().min(1), file: z.string().optional() });
     const b = Body.parse((req as any).body);
     const repo = db.prepare('SELECT * FROM repos WHERE id=?').get(b.repoId) as any;
     if (!repo) return { error: 'repo_not_found' };
     const ok = await validateWorktreeBelongsToRepo(repo.path, b.worktreePath);
     if (!ok) return { error: 'invalid_worktree' };
-    await stageAll(b.worktreePath);
+
+    if (b.file) {
+      await git(['-C', b.worktreePath, 'add', '--', b.file]);
+    } else {
+      await stageAll(b.worktreePath);
+    }
     return { ok: true };
   });
 

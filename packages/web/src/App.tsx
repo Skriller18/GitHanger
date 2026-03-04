@@ -15,6 +15,7 @@ import { DiffView } from './DiffView';
 import { SessionsPage } from './SessionsPage';
 import { SessionDetailPage } from './SessionDetailPage';
 import { BranchPage } from './BranchPage';
+import { StatusBlock } from './StatusBlock';
 
 type Repo = { id: string; name: string; path: string };
 
@@ -355,12 +356,17 @@ function WorktreePage() {
   const [files, setFiles] = React.useState<DiffFile[]>([]);
   const [filesCached, setFilesCached] = React.useState<DiffFile[]>([]);
   const [info, setInfo] = React.useState<{ branch: string; upstream: string | null; ahead: number; behind: number; lastPushTime: number | null } | null>(null);
+  const [status, setStatus] = React.useState<null | {
+    staged: Array<{ xy: string; file: string }>;
+    unstaged: Array<{ xy: string; file: string }>;
+    untracked: Array<{ xy: string; file: string }>;
+  }>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
   async function refreshAll() {
     setErr(null);
     try {
-      const [c, d, s, i] = await Promise.all([
+      const [c, d, s, i, st] = await Promise.all([
         apiGet<{ commits: Commit[] }>(`/api/commits?worktreePath=${encodeURIComponent(wtPath)}&limit=${COMMIT_PAGE}&skip=${commitSkip}`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}`),
         apiGet<{ files: DiffFile[] }>(`/api/diff?worktreePath=${encodeURIComponent(wtPath)}&cached=true`),
@@ -369,12 +375,18 @@ function WorktreePage() {
               `/api/worktree/info?repoId=${encodeURIComponent(repoId)}&worktreePath=${encodeURIComponent(wtPath)}`
             )
           : Promise.resolve({ ok: true, branch: '(unknown)', upstream: null, ahead: 0, behind: 0, lastPushTime: null }),
+        repoId
+          ? apiGet<{ ok: true; staged: any[]; unstaged: any[]; untracked: any[] }>(
+              `/api/worktree/status?repoId=${encodeURIComponent(repoId)}&worktreePath=${encodeURIComponent(wtPath)}`
+            )
+          : Promise.resolve({ ok: true, staged: [], unstaged: [], untracked: [] }),
       ]);
       setCommits((prev) => (commitSkip === 0 ? c.commits : [...prev, ...c.commits]));
       setCommitHasMore(c.commits.length === COMMIT_PAGE);
       setFiles(d.files);
       setFilesCached(s.files);
       setInfo({ branch: i.branch, upstream: i.upstream, ahead: i.ahead, behind: i.behind, lastPushTime: i.lastPushTime });
+      setStatus({ staged: st.staged ?? [], unstaged: st.unstaged ?? [], untracked: st.untracked ?? [] });
     } catch (e: any) {
       setErr(e.message ?? String(e));
     }
@@ -420,53 +432,90 @@ function WorktreePage() {
 
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
 
-      <div className="gh-card" style={{ marginBottom: 12 }}>
-        <div className="gh-card-header">Git actions</div>
-        <div className="gh-card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            className="gh-btn-primary"
-            disabled={!repoId}
-            onClick={async () => {
-              await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath });
-              await refreshAll();
-            }}
-          >
-            Stage all
-          </button>
+      <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 12 }}>
+        <div className="gh-card">
+          <div className="gh-card-header">Git actions</div>
+          <div className="gh-card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              className="gh-btn-primary"
+              disabled={!repoId}
+              onClick={async () => {
+                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath });
+                await refreshAll();
+              }}
+            >
+              Stage all
+            </button>
 
-          <button
-            disabled={!repoId}
-            onClick={async () => {
-              const message = prompt('Commit message:');
-              if (!message) return;
-              await apiPost('/api/worktree/commit', { repoId, worktreePath: wtPath, message });
-              await refreshAll();
-            }}
-          >
-            Commit
-          </button>
+            <button
+              disabled={!repoId}
+              onClick={async () => {
+                const message = prompt('Commit message:');
+                if (!message) return;
+                await apiPost('/api/worktree/commit', { repoId, worktreePath: wtPath, message });
+                await refreshAll();
+              }}
+            >
+              Commit
+            </button>
 
-          <button
-            disabled={!repoId}
-            onClick={async () => {
-              await apiPost('/api/worktree/pull', { repoId, worktreePath: wtPath });
-              await refreshAll();
-            }}
-          >
-            Pull
-          </button>
+            <button
+              disabled={!repoId}
+              onClick={async () => {
+                await apiPost('/api/worktree/pull', { repoId, worktreePath: wtPath });
+                await refreshAll();
+              }}
+            >
+              Pull
+            </button>
 
-          <button
-            disabled={!repoId}
-            onClick={async () => {
-              await apiPost('/api/worktree/push', { repoId, worktreePath: wtPath });
-              await refreshAll();
-            }}
-          >
-            Push
-          </button>
+            <button
+              disabled={!repoId}
+              onClick={async () => {
+                await apiPost('/api/worktree/push', { repoId, worktreePath: wtPath });
+                await refreshAll();
+              }}
+            >
+              Push
+            </button>
 
-          {!repoId ? <span className="gh-muted" style={{ fontSize: 12 }}>Actions disabled (missing repoId)</span> : null}
+            {!repoId ? <span className="gh-muted" style={{ fontSize: 12 }}>Actions disabled (missing repoId)</span> : null}
+          </div>
+        </div>
+
+        <div className="gh-card">
+          <div className="gh-card-header">Changes</div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
+            <StatusBlock
+              title={`Unstaged (${status?.unstaged.length ?? 0})`}
+              items={status?.unstaged ?? []}
+              actionLabel="Stage"
+              onAction={async (file) => {
+                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
+                await refreshAll();
+              }}
+              disabled={!repoId}
+            />
+
+            <StatusBlock
+              title={`Untracked (${status?.untracked.length ?? 0})`}
+              items={status?.untracked ?? []}
+              actionLabel="Stage"
+              onAction={async (file) => {
+                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
+                await refreshAll();
+              }}
+              disabled={!repoId}
+            />
+
+            <StatusBlock
+              title={`Staged (${status?.staged.length ?? 0})`}
+              items={status?.staged ?? []}
+              actionLabel={null}
+              onAction={async () => {}}
+              disabled={!repoId}
+            />
+          </div>
         </div>
       </div>
 
