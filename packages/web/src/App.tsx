@@ -489,30 +489,74 @@ function WorktreePage() {
             <StatusBlock
               title={`Unstaged (${status?.unstaged.length ?? 0})`}
               items={status?.unstaged ?? []}
-              actionLabel="Stage"
-              onAction={async (file) => {
-                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
-                await refreshAll();
-              }}
+              actions={[
+                {
+                  label: 'Stage',
+                  kind: 'primary',
+                  run: async (file) => {
+                    await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
+                    await refreshAll();
+                  },
+                },
+                {
+                  label: 'Discard',
+                  kind: 'danger',
+                  confirm: (file) => `Discard changes in ${file}?\n\nThis will revert the file in your working tree.`,
+                  run: async (file) => {
+                    await apiPost('/api/worktree/discard', { repoId, worktreePath: wtPath, file, kind: 'tracked' });
+                    await refreshAll();
+                  },
+                },
+              ]}
               disabled={!repoId}
             />
 
             <StatusBlock
               title={`Untracked (${status?.untracked.length ?? 0})`}
               items={status?.untracked ?? []}
-              actionLabel="Stage"
-              onAction={async (file) => {
-                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
-                await refreshAll();
-              }}
+              actions={[
+                {
+                  label: 'Stage',
+                  kind: 'primary',
+                  run: async (file) => {
+                    await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath, file });
+                    await refreshAll();
+                  },
+                },
+                {
+                  label: 'Discard',
+                  kind: 'danger',
+                  confirm: (file) => `Delete untracked file ${file}?`,
+                  run: async (file) => {
+                    await apiPost('/api/worktree/discard', { repoId, worktreePath: wtPath, file, kind: 'untracked' });
+                    await refreshAll();
+                  },
+                },
+              ]}
               disabled={!repoId}
             />
 
             <StatusBlock
               title={`Staged (${status?.staged.length ?? 0})`}
               items={status?.staged ?? []}
-              actionLabel={null}
-              onAction={async () => {}}
+              actions={[
+                {
+                  label: 'Unstage',
+                  run: async (file) => {
+                    await apiPost('/api/worktree/unstage', { repoId, worktreePath: wtPath, file });
+                    await refreshAll();
+                  },
+                },
+                {
+                  label: 'Discard',
+                  kind: 'danger',
+                  confirm: (file) => `Discard staged+unstaged changes in ${file}?\n\nThis will reset the file to HEAD.`,
+                  run: async (file) => {
+                    await apiPost('/api/worktree/discard', { repoId, worktreePath: wtPath, file, kind: 'tracked' });
+                    await refreshAll();
+                  },
+                },
+              ]}
               disabled={!repoId}
             />
           </div>

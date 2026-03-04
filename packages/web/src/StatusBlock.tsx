@@ -1,11 +1,15 @@
 export function StatusBlock(props: {
   title: string;
   items: Array<{ xy: string; file: string }>;
-  actionLabel: string | null;
+  actions: Array<{
+    label: string;
+    kind?: 'primary' | 'danger' | 'default';
+    confirm?: (file: string) => string;
+    run: (file: string) => Promise<void> | void;
+  }>;
   disabled?: boolean;
-  onAction: (file: string) => Promise<void> | void;
 }) {
-  const { title, items, actionLabel, onAction, disabled } = props;
+  const { title, items, actions, disabled } = props;
 
   return (
     <div>
@@ -23,14 +27,31 @@ export function StatusBlock(props: {
               <div className="gh-code" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 <span className="gh-muted">{it.xy}</span> {it.file}
               </div>
-              {actionLabel ? (
-                <button
-                  disabled={disabled}
-                  onClick={() => onAction(it.file)}
-                  style={{ padding: '6px 10px', fontSize: 12 }}
-                >
-                  {actionLabel}
-                </button>
+              {actions.length ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {actions.map((a) => (
+                    <button
+                      key={a.label}
+                      disabled={disabled}
+                      onClick={async () => {
+                        if (a.confirm) {
+                          const msg = a.confirm(it.file);
+                          const ok = confirm(msg);
+                          if (!ok) return;
+                        }
+                        await a.run(it.file);
+                      }}
+                      className={a.kind === 'primary' ? 'gh-btn-primary' : undefined}
+                      style={
+                        a.kind === 'danger'
+                          ? { padding: '6px 10px', fontSize: 12, background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }
+                          : { padding: '6px 10px', fontSize: 12 }
+                      }
+                    >
+                      {a.label}
+                    </button>
+                  ))}
+                </div>
               ) : null}
             </div>
           ))}

@@ -8,6 +8,7 @@ import { registerBranchApi } from './branches.js';
 import { registerWorktreeAdminApi } from './worktrees.js';
 import { registerSessionAdminApi } from './session_admin.js';
 import { registerWorktreeGitApi } from './worktree_git.js';
+import { registerWorktreeFileApi } from './worktree_files.js';
 
 const PORT = Number(process.env.GITHANGER_PORT ?? 4545);
 const HOST = process.env.GITHANGER_HOST ?? '127.0.0.1';
@@ -38,6 +39,7 @@ await registerJumpApi(app, db);
 await registerBranchApi(app, db);
 await registerWorktreeAdminApi(app, db);
 await registerWorktreeGitApi(app, db);
+await registerWorktreeFileApi(app, db);
 await registerSessionAdminApi(app, db);
 
 await app.listen({ port: PORT, host: HOST });
