@@ -21,43 +21,54 @@ type DiffFile = {
   chunks: Chunk[];
 };
 
-export function DiffView(props: { files: DiffFile[] }) {
+export function DiffView(props: { files: DiffFile[]; title?: string }) {
   const [active, setActive] = React.useState<number>(0);
   const file = props.files[active];
 
-  if (!props.files.length) return <div style={{ padding: 12 }}>No diff</div>;
+  React.useEffect(() => {
+    setActive(0);
+  }, [props.files.length]);
+
+  if (!props.files.length) {
+    return <div className="gh-muted" style={{ padding: 12 }}>No diff</div>;
+  }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 12, height: 'calc(100vh - 120px)' }}>
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'auto' }}>
-        {props.files.map((f, i) => (
-          <button
-            key={i}
-            onClick={() => setActive(i)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '10px 12px',
-              border: 'none',
-              borderBottom: '1px solid #eee',
-              background: i === active ? '#f5f5f5' : 'white',
-              cursor: 'pointer',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-              fontSize: 12,
-            }}
-          >
-            {f.to || f.from}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'auto' }}>
-        <div style={{ padding: '10px 12px', borderBottom: '1px solid #eee', fontWeight: 600 }}>
-          {file.to || file.from}
+    <div className="gh-card" style={{ height: 520 }}>
+      {props.title ? <div className="gh-card-header">{props.title}</div> : null}
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: props.title ? 480 : 520 }}>
+        <div style={{ borderRight: '1px solid var(--border)', overflow: 'auto' }}>
+          {props.files.map((f, i) => (
+            <button
+              key={i}
+              onClick={() => setActive(i)}
+              style={{
+                width: '100%',
+                textAlign: 'left',
+                padding: '10px 12px',
+                border: 'none',
+                borderBottom: '1px solid rgba(255,255,255,0.06)',
+                background: i === active ? 'rgba(124, 58, 237, 0.18)' : 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              <div className="gh-code" style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {f.to || f.from}
+              </div>
+            </button>
+          ))}
         </div>
-        <pre style={{ margin: 0, padding: 12, fontSize: 12, lineHeight: 1.45 }}>
-          {file.chunks.flatMap((c, idx) => renderChunk(c, idx))}
-        </pre>
+
+        <div style={{ overflow: 'auto' }}>
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontWeight: 800 }}>
+            <span className="gh-code">{file.to || file.from}</span>
+          </div>
+          <div style={{ padding: 12 }}>
+            <div className="gh-code" style={{ fontSize: 12, lineHeight: 1.55 }}>
+              {file.chunks.flatMap((c, idx) => renderChunk(c, idx))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -67,25 +78,43 @@ function renderChunk(chunk: Chunk, idx: number) {
   const header = `@@ -${chunk.oldStart},${chunk.oldLines} +${chunk.newStart},${chunk.newLines} @@`;
   const lines: React.ReactNode[] = [];
   lines.push(
-    <div key={`h-${idx}`} style={{ color: '#6a737d' }}>
+    <div key={`h-${idx}`} style={{ color: 'var(--muted)', padding: '6px 0' }}>
       {header}
     </div>
   );
 
   for (let i = 0; i < chunk.changes.length; i++) {
     const ch = chunk.changes[i];
-    const bg = ch.type === 'add' ? '#e6ffed' : ch.type === 'del' ? '#ffeef0' : 'transparent';
-    const fg = ch.type === 'add' ? '#22863a' : ch.type === 'del' ? '#b31d28' : '#24292e';
+    const bg =
+      ch.type === 'add'
+        ? 'rgba(34, 197, 94, 0.12)'
+        : ch.type === 'del'
+          ? 'rgba(239, 68, 68, 0.12)'
+          : 'transparent';
+    const fg =
+      ch.type === 'add'
+        ? 'rgba(187, 247, 208, 0.95)'
+        : ch.type === 'del'
+          ? 'rgba(254, 202, 202, 0.95)'
+          : 'rgba(255,255,255,0.88)';
     const oldNo = ch.ln ?? '';
     const newNo = ch.ln2 ?? '';
     lines.push(
       <div
         key={`${idx}-${i}`}
-        style={{ display: 'grid', gridTemplateColumns: '52px 52px 1fr', gap: 8, background: bg, color: fg }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '56px 56px 1fr',
+          gap: 10,
+          background: bg,
+          color: fg,
+          padding: '2px 6px',
+          borderRadius: 8,
+        }}
       >
-        <span style={{ textAlign: 'right', opacity: 0.7 }}>{oldNo}</span>
-        <span style={{ textAlign: 'right', opacity: 0.7 }}>{newNo}</span>
-        <span>{ch.content}</span>
+        <span style={{ textAlign: 'right', opacity: 0.6 }}>{oldNo}</span>
+        <span style={{ textAlign: 'right', opacity: 0.6 }}>{newNo}</span>
+        <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{ch.content}</span>
       </div>
     );
   }

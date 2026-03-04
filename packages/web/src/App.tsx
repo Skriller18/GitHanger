@@ -482,14 +482,12 @@ function WorktreePage() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontWeight: 900, marginBottom: 8 }}>Uncommitted diff</div>
-        <DiffView files={files as any} />
+      <div style={{ marginBottom: 16 }}>
+        <DiffView title="Uncommitted (unstaged + untracked)" files={files as any} />
       </div>
 
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontWeight: 900, marginBottom: 8 }}>Staged diff</div>
-        <DiffView files={filesCached as any} />
+        <DiffView title="Staged" files={filesCached as any} />
       </div>
     </div>
   );
