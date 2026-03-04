@@ -38,7 +38,7 @@ type DiffFile = {
 export default function App() {
   return (
     <BrowserRouter>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 16 }}>
+      <div className="gh-container">
         <TopBar />
 
         <Routes>
@@ -78,36 +78,26 @@ function TopBar() {
   }, [repoId, location.pathname]);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-      <Link to="/" style={{ fontWeight: 700, fontSize: 18, textDecoration: 'none', color: '#111' }}>
-        GitHanger
-      </Link>
-      <span style={{ color: '#666' }}>local dashboard</span>
+    <div className="gh-topbar">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Link to="/" style={{ fontWeight: 900, fontSize: 18 }}>
+          GitHanger
+        </Link>
+        <span className="gh-muted" style={{ fontSize: 13 }}>
+          local dashboard
+        </span>
 
-      {repoId && me ? (
-        <div
-          style={{
-            marginLeft: 8,
-            padding: '6px 10px',
-            border: '1px solid #ddd',
-            borderRadius: 999,
-            background: '#fafafa',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-            fontSize: 12,
-          }}
-          title="Current branch in your 'me' worktree"
-        >
-          me: {me.branch} {me.dirty ? <span style={{ color: '#b45309' }}>(dirty)</span> : <span style={{ color: '#0a7' }}>(clean)</span>}
+        {repoId && me ? (
+          <span className="gh-pill" title="Current branch in your 'me' worktree">
+            me: {me.branch}{' '}
+            {me.dirty ? <span style={{ color: 'var(--warn)' }}>(dirty)</span> : <span style={{ color: 'var(--accent2)' }}>(clean)</span>}
+          </span>
+        ) : null}
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 14, alignItems: 'center' }}>
+          <Link to="/">Repos</Link>
+          <Link to="/sessions">Sessions</Link>
         </div>
-      ) : null}
-
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
-        <Link to="/" style={{ color: '#111' }}>
-          Repos
-        </Link>
-        <Link to="/sessions" style={{ color: '#111' }}>
-          Sessions
-        </Link>
       </div>
     </div>
   );

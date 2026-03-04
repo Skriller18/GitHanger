@@ -1,42 +1,83 @@
-#root {
-  max-width: 1280px;
+.gh-container {
+  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 20px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.gh-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(11, 15, 23, 0.72);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.gh-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(16, 24, 39, 0.72);
 }
 
-.card {
-  padding: 2em;
+.gh-card-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 800;
 }
 
-.read-the-docs {
-  color: #888;
+.gh-card-body {
+  padding: 12px 14px;
+}
+
+.gh-muted {
+  color: var(--muted);
+}
+
+.gh-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.gh-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gh-table th,
+.gh-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+}
+
+.gh-table th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.gh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.gh-btn-primary {
+  background: rgba(124, 58, 237, 0.25);
+  border-color: rgba(124, 58, 237, 0.45);
+}
+
+.gh-btn-primary:hover {
+  background: rgba(124, 58, 237, 0.33);
 }
