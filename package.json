@@ -1,0 +1,17 @@
+{
+  "name": "githanger",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local agent+git dashboard for tracking branches/worktrees and agent sessions.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run -w @githanger/server dev",
+    "dev:web": "npm run -w @githanger/web dev",
+    "build": "tsc -b && npm run -w @githanger/web build",
+    "typecheck": "tsc -b --pretty false --verbose false --noEmit",
+    "lint": "npm run -ws lint"
+  }
+}
