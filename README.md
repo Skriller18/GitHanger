@@ -43,13 +43,13 @@ githanger start
 
 Open the Vite URL (usually `http://localhost:5173`).
 
-### 4) Register a repo
+### Register a repo
 ```bash
 cd /path/to/your/repo
 githanger init
 ```
 
-### 5) Start an agent session (Claude Code or Codex)
+### Start an agent session (Claude Code or Codex)
 ```bash
 cd /path/to/your/repo
 githanger run
@@ -62,7 +62,7 @@ Interactive prompts:
 
 Sessions are tracked in `~/.githanger/githanger.sqlite`.
 
-### 6) Jump between branches (safe)
+### Jump between branches (safe)
 Use the dashboard "Jump" buttons. GitHanger will:
 - switch your dedicated `me` worktree
 - auto-stash changes when you leave a branch
@@ -77,5 +77,5 @@ Use the dashboard "Jump" buttons. GitHanger will:
 
 ## Roadmap (near-term)
 - Better UI for jump results (conflicts, applied stash info)
-- Branch-based navigation (not only worktrees)
+- Branch-based navigation (not only worktrees) ✅ (local branches + compare view)
 - GitHub read-only integration (PR link + checks)
