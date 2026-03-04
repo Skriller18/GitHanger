@@ -3,6 +3,8 @@ import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from 'reac
 import './App.css';
 import { apiGet, apiPost } from './api';
 import { DiffView } from './DiffView';
+import { SessionsPage } from './SessionsPage';
+import { SessionDetailPage } from './SessionDetailPage';
 
 type Repo = { id: string; name: string; path: string };
 
@@ -32,10 +34,16 @@ export default function App() {
             GitHanger
           </Link>
           <span style={{ color: '#666' }}>local dashboard</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+            <Link to="/" style={{ color: '#111' }}>Repos</Link>
+            <Link to="/sessions" style={{ color: '#111' }}>Sessions</Link>
+          </div>
         </div>
 
         <Routes>
           <Route path="/" element={<ReposPage />} />
+          <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/session/:id" element={<SessionDetailPage />} />
           <Route path="/repo/:id" element={<RepoPage />} />
           <Route path="/repo/:id/wt" element={<WorktreePage />} />
         </Routes>
@@ -119,6 +127,7 @@ function RepoPage() {
   const { id } = useParams();
   const [repo, setRepo] = React.useState<Repo | null>(null);
   const [worktrees, setWorktrees] = React.useState<Worktree[]>([]);
+  const [sessions, setSessions] = React.useState<any[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -128,6 +137,8 @@ function RepoPage() {
         const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${id}/worktrees`);
         setRepo(data.repo);
         setWorktrees(data.worktrees);
+        const s = await apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent(data.repo.path)}`);
+        setSessions(s.sessions);
       } catch (e: any) {
         setErr(e.message ?? String(e));
       }
@@ -142,6 +153,26 @@ function RepoPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <h3 style={{ margin: '8px 0 12px' }}>{repo.name}</h3>
         <div style={{ color: '#666', fontSize: 12 }}>{repo.path}</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Agent sessions</div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {sessions.map((s) => (
+              <Link key={s.id} to={`/session/${s.id}`} style={{ textDecoration: 'none', color: '#111' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <b>{s.name}</b> <span style={{ color: '#666' }}>({s.provider})</span>
+                    <div style={{ color: '#666', fontSize: 12 }}>{s.branch}</div>
+                  </div>
+                  <div style={{ color: s.status === 'running' ? '#0a7' : s.status === 'crashed' ? 'crimson' : '#666' }}>{s.status}</div>
+                </div>
+              </Link>
+            ))}
+            {!sessions.length ? <div style={{ color: '#666' }}>No sessions for this repo yet.</div> : null}
+          </div>
+        </div>
       </div>
 
       <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
