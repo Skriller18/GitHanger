@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiGet, apiPost } from './api';
+import { apiGet, apiPost, API_BASE } from './api';
 
 type Session = {
   id: string;
@@ -17,12 +17,53 @@ type Session = {
 
 type Event = { ts: number; kind: string; message?: string | null };
 
+type ChatMessage = {
+  id: string;
+  ts: number;
+  role: 'user' | 'agent';
+  text: string;
+};
+
+type ApprovalRequest = {
+  requestId: string;
+  title: string;
+  detail?: string;
+  meta?: Record<string, unknown>;
+};
+
+function parseJson<T>(value: string | null | undefined): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function toChatMessage(e: Event): ChatMessage | null {
+  if (!['chat_user', 'chat_agent'].includes(e.kind)) return null;
+  const payload = parseJson<{ role?: 'user' | 'agent'; text?: string }>(e.message);
+  const text = payload?.text ?? e.message ?? '';
+  if (!text.trim()) return null;
+  const role = e.kind === 'chat_user' ? 'user' : payload?.role === 'agent' ? 'agent' : 'agent';
+  return {
+    id: `${e.ts}-${e.kind}-${text.slice(0, 10)}`,
+    ts: e.ts,
+    role,
+    text,
+  };
+}
+
 export function SessionDetailPage() {
   const { id } = useParams();
   const [session, setSession] = React.useState<Session | null>(null);
   const [events, setEvents] = React.useState<Event[]>([]);
   const [repoId, setRepoId] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+
+  const [chatInput, setChatInput] = React.useState('');
+  const [sendingChat, setSendingChat] = React.useState(false);
+  const [pendingApproval, setPendingApproval] = React.useState<ApprovalRequest | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -33,7 +74,6 @@ export function SessionDetailPage() {
         setSession(data.session ?? null);
         setEvents(data.events ?? []);
 
-        // resolve repoId by repoPath so we can link to worktree page safely.
         if (data.session?.repoPath) {
           const r = await apiGet<{ repos: Array<{ id: string; path: string }> }>('/api/repos');
           const match = r.repos.find((x) => x.path === data.session!.repoPath);
@@ -44,6 +84,46 @@ export function SessionDetailPage() {
       }
     })();
   }, [id]);
+
+  React.useEffect(() => {
+    if (!id) return;
+    const stream = new EventSource(`${API_BASE}/api/sessions2/${id}/stream`);
+
+    const onEvent = (raw: MessageEvent<string>) => {
+      try {
+        const event = JSON.parse(raw.data) as Event;
+        setEvents((prev) => [event, ...prev].slice(0, 500));
+
+        if (event.kind === 'approval_required') {
+          const payload = parseJson<ApprovalRequest>(event.message);
+          if (payload?.requestId && payload?.title) {
+            setPendingApproval(payload);
+          }
+        }
+      } catch {
+        // ignore malformed payload
+      }
+    };
+
+    stream.addEventListener('event', onEvent as EventListener);
+    stream.onerror = () => {
+      // native EventSource will auto-reconnect
+    };
+
+    return () => {
+      stream.removeEventListener('event', onEvent as EventListener);
+      stream.close();
+    };
+  }, [id]);
+
+  const chatMessages = React.useMemo(() => {
+    const fromEvents = events.map(toChatMessage).filter(Boolean) as ChatMessage[];
+    return [...fromEvents].sort((a, b) => a.ts - b.ts);
+  }, [events]);
+
+  const activityEvents = React.useMemo(() => {
+    return [...events].sort((a, b) => b.ts - a.ts);
+  }, [events]);
 
   if (err) return <div style={{ color: 'crimson' }}>{err}</div>;
   if (!session) return <div>Loading…</div>;
@@ -91,6 +171,17 @@ export function SessionDetailPage() {
               >
                 Delete
               </button>
+
+              <button
+                onClick={async () => {
+                  await apiPost(`/api/sessions2/${session.id}/approval-required`, {
+                    title: 'Approve potentially risky command',
+                    detail: 'Agent wants to run: git push --force-with-lease',
+                  });
+                }}
+              >
+                Simulate approval
+              </button>
             </div>
           </div>
 
@@ -104,34 +195,129 @@ export function SessionDetailPage() {
                 View worktree diff/commits
               </Link>
             )}
-            {!repoId ? (
-              <div className="gh-muted" style={{ fontSize: 12, marginTop: 6 }}>
-                (Repo not registered yet; actions may be limited)
-              </div>
-            ) : null}
           </div>
         </div>
       </div>
 
-      <div style={{ border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 12px', background: '#fafafa', borderBottom: '1px solid #eee', fontWeight: 700 }}>
-          Recent events
-        </div>
-        <div style={{ maxHeight: 520, overflow: 'auto' }}>
-          {events.map((e, idx) => (
-            <div key={idx} style={{ padding: '10px 12px', borderBottom: '1px solid #f1f1f1' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div style={{ fontWeight: 700 }}>{e.kind}</div>
-                <div style={{ fontSize: 12, color: '#666' }}>{new Date(e.ts).toLocaleString()}</div>
-              </div>
-              {e.message ? (
-                <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>{e.message}</pre>
-              ) : null}
+      <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="gh-card">
+          <div className="gh-card-header">Chat</div>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
+            <div style={{ maxHeight: 320, overflow: 'auto', display: 'grid', gap: 8 }}>
+              {chatMessages.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    padding: 10,
+                    borderRadius: 10,
+                    border: '1px solid #e9e9e9',
+                    background: m.role === 'user' ? '#f7faff' : '#fafafa',
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
+                    {m.role === 'user' ? 'You' : 'Agent'} · {new Date(m.ts).toLocaleTimeString()}
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                </div>
+              ))}
+              {!chatMessages.length ? <div className="gh-muted">No chat messages yet.</div> : null}
             </div>
-          ))}
-          {!events.length ? <div style={{ padding: 12, color: '#666' }}>No events yet.</div> : null}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const text = chatInput.trim();
+                if (!text || sendingChat) return;
+                setSendingChat(true);
+                try {
+                  await apiPost(`/api/sessions2/${session.id}/chat`, { message: text });
+                  setChatInput('');
+                } finally {
+                  setSendingChat(false);
+                }
+              }}
+              style={{ display: 'flex', gap: 8 }}
+            >
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Send a message to this session"
+                style={{ flex: 1 }}
+              />
+              <button type="submit" className="gh-btn-primary" disabled={sendingChat || !chatInput.trim()}>
+                Send
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div className="gh-card">
+          <div className="gh-card-header">Live activity stream</div>
+          <div className="gh-card-body" style={{ maxHeight: 420, overflow: 'auto', display: 'grid', gap: 8 }}>
+            {activityEvents.map((e, idx) => (
+              <div key={`${e.ts}-${idx}`} style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <b>{e.kind}</b>
+                  <span className="gh-muted" style={{ fontSize: 12 }}>{new Date(e.ts).toLocaleString()}</span>
+                </div>
+                {e.message ? <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>{e.message}</pre> : null}
+              </div>
+            ))}
+            {!activityEvents.length ? <div className="gh-muted">No events yet.</div> : null}
+          </div>
         </div>
       </div>
+
+      {pendingApproval ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div className="gh-card" style={{ width: 'min(560px, 92vw)' }}>
+            <div className="gh-card-header">approval_required</div>
+            <div className="gh-card-body" style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>{pendingApproval.title}</div>
+                {pendingApproval.detail ? <div className="gh-muted" style={{ marginTop: 6 }}>{pendingApproval.detail}</div> : null}
+                <div className="gh-code gh-muted" style={{ marginTop: 6 }}>requestId: {pendingApproval.requestId}</div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  onClick={async () => {
+                    await apiPost(`/api/sessions2/${session.id}/approval`, {
+                      requestId: pendingApproval.requestId,
+                      decision: 'reject',
+                    });
+                    setPendingApproval(null);
+                  }}
+                >
+                  Reject
+                </button>
+                <button
+                  className="gh-btn-primary"
+                  onClick={async () => {
+                    await apiPost(`/api/sessions2/${session.id}/approval`, {
+                      requestId: pendingApproval.requestId,
+                      decision: 'approve',
+                    });
+                    setPendingApproval(null);
+                  }}
+                >
+                  Approve
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
