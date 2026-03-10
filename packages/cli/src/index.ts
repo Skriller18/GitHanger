@@ -152,7 +152,9 @@ program
     // Claude/Codex CLIs need a TTY. To keep DB chat bridging + output capture,
     // run them through `script` (PTY wrapper) while still using piped stdio here.
     const interactiveAgent = /(^|\/)claude$|(^|\/)codex$/i.test(cmd);
-    const useScriptPty = interactiveAgent;
+    // macOS `script` requires a real TTY on stdin. In some launch contexts stdin
+    // is a socket/pipe, which throws: "tcgetattr/ioctl: Operation not supported on socket".
+    const useScriptPty = interactiveAgent && Boolean(process.stdin.isTTY);
 
     const child = useScriptPty
       ? execa('script', ['-q', '/dev/null', cmd, ...cmdArgs], {
@@ -182,6 +184,8 @@ program
 
     if (useScriptPty) {
       insertEvent.run(Date.now(), sessionId, 'system', 'stdio=pipe via script PTY');
+    } else if (interactiveAgent) {
+      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=pipe (no TTY available for script PTY)');
     }
 
     db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
