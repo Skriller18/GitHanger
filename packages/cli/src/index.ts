@@ -152,107 +152,99 @@ program
     // Claude/Codex CLIs need a TTY. To keep DB chat bridging + output capture,
     // run them through `script` (PTY wrapper) while still using piped stdio here.
     const interactiveAgent = /(^|\/)claude$|(^|\/)codex$/i.test(cmd);
-    // macOS `script` requires a real TTY on stdin. In some launch contexts stdin
-    // is a socket/pipe, which throws: "tcgetattr/ioctl: Operation not supported on socket".
-    const useScriptPty = interactiveAgent && Boolean(process.stdin.isTTY);
+    // Temporary compatibility mode: interactive agents run with inherited TTY.
+    // This avoids macOS `script` ioctl/socket failures and startup hangs.
+    const useInheritTty = interactiveAgent;
 
-    const child = useScriptPty
-      ? execa('script', ['-q', '/dev/null', cmd, ...cmdArgs], {
-          cwd: worktreePath,
-          env: {
-            ...process.env,
-            GITHANGER_SESSION_ID: sessionId,
-            GITHANGER_PROVIDER: provider,
-            GITHANGER_REPO: repoPath,
-            GITHANGER_WORKTREE: worktreePath,
-            GITHANGER_BRANCH: branch,
-          },
-          stdio: 'pipe',
-        })
-      : execa(cmd, cmdArgs, {
-          cwd: worktreePath,
-          env: {
-            ...process.env,
-            GITHANGER_SESSION_ID: sessionId,
-            GITHANGER_PROVIDER: provider,
-            GITHANGER_REPO: repoPath,
-            GITHANGER_WORKTREE: worktreePath,
-            GITHANGER_BRANCH: branch,
-          },
-          stdio: 'pipe',
-        });
+    const child = execa(cmd, cmdArgs, {
+      cwd: worktreePath,
+      env: {
+        ...process.env,
+        GITHANGER_SESSION_ID: sessionId,
+        GITHANGER_PROVIDER: provider,
+        GITHANGER_REPO: repoPath,
+        GITHANGER_WORKTREE: worktreePath,
+        GITHANGER_BRANCH: branch,
+      },
+      stdio: useInheritTty ? 'inherit' : 'pipe',
+    });
 
-    if (useScriptPty) {
-      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=pipe via script PTY');
-    } else if (interactiveAgent) {
-      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=pipe (no TTY available for script PTY)');
+    if (useInheritTty) {
+      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=inherit (interactive TTY mode)');
     }
 
     db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
 
-    const outToEvent = createLineBuffer((line) => {
-      insertEvent.run(
-        Date.now(),
-        sessionId,
-        'chat_agent',
-        JSON.stringify({ role: 'agent', text: line })
-      );
-    });
+    if (!useInheritTty) {
+      const outToEvent = createLineBuffer((line) => {
+        insertEvent.run(
+          Date.now(),
+          sessionId,
+          'chat_agent',
+          JSON.stringify({ role: 'agent', text: line })
+        );
+      });
 
-    child.stdout?.on('data', (chunk) => {
-      process.stdout.write(chunk);
-      outToEvent(chunk);
-    });
+      child.stdout?.on('data', (chunk) => {
+        process.stdout.write(chunk);
+        outToEvent(chunk);
+      });
 
-    child.stderr?.on('data', (chunk) => {
-      process.stderr.write(chunk);
-      outToEvent(chunk);
-    });
+      child.stderr?.on('data', (chunk) => {
+        process.stderr.write(chunk);
+        outToEvent(chunk);
+      });
+    }
 
     // Poll control events from DB and forward to the running agent process.
     // This is intentionally simple and local-first for MVP reliability.
-    let lastControlEventId = 0;
-    const controlPump = setInterval(() => {
-      const rows = db
-        .prepare(
-          `SELECT id, kind, message
-           FROM events
-           WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
-           ORDER BY id ASC`
-        )
-        .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
+    let controlPump: NodeJS.Timeout | null = null;
+    if (!useInheritTty) {
+      let lastControlEventId = 0;
+      controlPump = setInterval(() => {
+        const rows = db
+          .prepare(
+            `SELECT id, kind, message
+             FROM events
+             WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
+             ORDER BY id ASC`
+          )
+          .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
 
-      for (const row of rows) {
-        lastControlEventId = Math.max(lastControlEventId, row.id);
+        for (const row of rows) {
+          lastControlEventId = Math.max(lastControlEventId, row.id);
 
-        if (!child.stdin || child.stdin.destroyed) continue;
+          if (!child.stdin || child.stdin.destroyed) continue;
 
-        if (row.kind === 'chat_user') {
-          try {
-            const payload = row.message ? JSON.parse(row.message) : null;
-            const text = String(payload?.text ?? '').trim();
-            if (text) child.stdin.write(`${text}\n`);
-          } catch {
-            const text = String(row.message ?? '').trim();
-            if (text) child.stdin.write(`${text}\n`);
-          }
-        }
-
-        if (row.kind === 'approval_decision') {
-          try {
-            const payload = row.message ? JSON.parse(row.message) : null;
-            const decision = String(payload?.decision ?? '').trim();
-            const note = String(payload?.note ?? '').trim();
-            if (decision) {
-              const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
-              child.stdin.write(`${line}\n`);
+          if (row.kind === 'chat_user') {
+            try {
+              const payload = row.message ? JSON.parse(row.message) : null;
+              const text = String(payload?.text ?? '').trim();
+              if (text) child.stdin.write(`${text}\n`);
+            } catch {
+              const text = String(row.message ?? '').trim();
+              if (text) child.stdin.write(`${text}\n`);
             }
-          } catch {
-            // no-op on malformed approval payload
+          }
+
+          if (row.kind === 'approval_decision') {
+            try {
+              const payload = row.message ? JSON.parse(row.message) : null;
+              const decision = String(payload?.decision ?? '').trim();
+              const note = String(payload?.note ?? '').trim();
+              if (decision) {
+                const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
+                child.stdin.write(`${line}\n`);
+              }
+            } catch {
+              // no-op on malformed approval payload
+            }
           }
         }
-      }
-    }, 800);
+      }, 800);
+    } else {
+      insertEvent.run(Date.now(), sessionId, 'system', 'dashboard chat bridge disabled in interactive TTY mode');
+    }
 
     const heartbeat = setInterval(() => {
       insertEvent.run(Date.now(), sessionId, 'heartbeat', 'running');
