@@ -149,41 +149,83 @@ program
     );
     insertEvent.run(now, sessionId, 'started', `${provider}:${name} on ${branch}`);
 
-    // Claude/Codex CLIs need a TTY. To keep DB chat bridging + output capture,
-    // run them through `script` (PTY wrapper) while still using piped stdio here.
     const interactiveAgent = /(^|\/)claude$|(^|\/)codex$/i.test(cmd);
-    // Temporary compatibility mode: interactive agents run with inherited TTY.
-    // This avoids macOS `script` ioctl/socket failures and startup hangs.
-    const useInheritTty = interactiveAgent;
+    const agentEnv = {
+      ...process.env,
+      GITHANGER_SESSION_ID: sessionId,
+      GITHANGER_PROVIDER: provider,
+      GITHANGER_REPO: repoPath,
+      GITHANGER_WORKTREE: worktreePath,
+      GITHANGER_BRANCH: branch,
+    };
 
-    const child = execa(cmd, cmdArgs, {
-      cwd: worktreePath,
-      env: {
-        ...process.env,
-        GITHANGER_SESSION_ID: sessionId,
-        GITHANGER_PROVIDER: provider,
-        GITHANGER_REPO: repoPath,
-        GITHANGER_WORKTREE: worktreePath,
-        GITHANGER_BRANCH: branch,
-      },
-      stdio: useInheritTty ? 'inherit' : 'pipe',
+    const outToEvent = createLineBuffer((line) => {
+      insertEvent.run(
+        Date.now(),
+        sessionId,
+        'chat_agent',
+        JSON.stringify({ role: 'agent', text: line })
+      );
     });
 
-    if (useInheritTty) {
-      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=inherit (interactive TTY mode)');
-    }
+    let controlPump: NodeJS.Timeout | null = null;
+    let waitForExit: Promise<{ exitCode: number | null }>;
+    let writeToAgent: ((text: string) => void) | null = null;
 
-    db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
+    if (interactiveAgent) {
+      // Preferred path: PTY for interactive CLIs + output capture + dashboard input bridge.
+      try {
+        const pty = await import('node-pty');
+        const ptyProc = pty.spawn(cmd, cmdArgs, {
+          name: 'xterm-color',
+          cols: process.stdout.columns || 120,
+          rows: process.stdout.rows || 30,
+          cwd: worktreePath,
+          env: agentEnv as Record<string, string>,
+        });
 
-    if (!useInheritTty) {
-      const outToEvent = createLineBuffer((line) => {
+        db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(ptyProc.pid ?? null, sessionId);
+        insertEvent.run(Date.now(), sessionId, 'system', 'transport=node-pty (interactive + bridged)');
+
+        ptyProc.onData((data: string) => {
+          process.stdout.write(data);
+          outToEvent(data);
+        });
+
+        writeToAgent = (text: string) => {
+          ptyProc.write(text);
+        };
+
+        waitForExit = new Promise((resolve) => {
+          ptyProc.onExit((e: { exitCode: number }) => resolve({ exitCode: e.exitCode }));
+        });
+      } catch (err: any) {
+        // Fallback path if node-pty is unavailable on this host.
         insertEvent.run(
           Date.now(),
           sessionId,
-          'chat_agent',
-          JSON.stringify({ role: 'agent', text: line })
+          'system',
+          `node-pty unavailable; fallback=inherit (${String(err?.message ?? err)})`
         );
+
+        const child = execa(cmd, cmdArgs, {
+          cwd: worktreePath,
+          env: agentEnv,
+          stdio: 'inherit',
+        });
+
+        db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
+        waitForExit = child.then((res) => ({ exitCode: res.exitCode ?? 0 }));
+        writeToAgent = null;
+      }
+    } else {
+      const child = execa(cmd, cmdArgs, {
+        cwd: worktreePath,
+        env: agentEnv,
+        stdio: 'pipe',
       });
+
+      db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
 
       child.stdout?.on('data', (chunk) => {
         process.stdout.write(chunk);
@@ -194,64 +236,64 @@ program
         process.stderr.write(chunk);
         outToEvent(chunk);
       });
+
+      writeToAgent = (text: string) => {
+        if (!child.stdin || child.stdin.destroyed) return;
+        child.stdin.write(text);
+      };
+
+      waitForExit = child.then((res) => ({ exitCode: res.exitCode ?? 0 }));
     }
 
     // Poll control events from DB and forward to the running agent process.
-    // This is intentionally simple and local-first for MVP reliability.
-    let controlPump: NodeJS.Timeout | null = null;
-    if (!useInheritTty) {
-      let lastControlEventId = 0;
-      controlPump = setInterval(() => {
-        const rows = db
-          .prepare(
-            `SELECT id, kind, message
-             FROM events
-             WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
-             ORDER BY id ASC`
-          )
-          .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
+    let lastControlEventId = 0;
+    controlPump = setInterval(() => {
+      const rows = db
+        .prepare(
+          `SELECT id, kind, message
+           FROM events
+           WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
+           ORDER BY id ASC`
+        )
+        .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
 
-        for (const row of rows) {
-          lastControlEventId = Math.max(lastControlEventId, row.id);
+      for (const row of rows) {
+        lastControlEventId = Math.max(lastControlEventId, row.id);
+        if (!writeToAgent) continue;
 
-          if (!child.stdin || child.stdin.destroyed) continue;
-
-          if (row.kind === 'chat_user') {
-            try {
-              const payload = row.message ? JSON.parse(row.message) : null;
-              const text = String(payload?.text ?? '').trim();
-              if (text) child.stdin.write(`${text}\n`);
-            } catch {
-              const text = String(row.message ?? '').trim();
-              if (text) child.stdin.write(`${text}\n`);
-            }
-          }
-
-          if (row.kind === 'approval_decision') {
-            try {
-              const payload = row.message ? JSON.parse(row.message) : null;
-              const decision = String(payload?.decision ?? '').trim();
-              const note = String(payload?.note ?? '').trim();
-              if (decision) {
-                const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
-                child.stdin.write(`${line}\n`);
-              }
-            } catch {
-              // no-op on malformed approval payload
-            }
+        if (row.kind === 'chat_user') {
+          try {
+            const payload = row.message ? JSON.parse(row.message) : null;
+            const text = String(payload?.text ?? '').trim();
+            if (text) writeToAgent(`${text}\n`);
+          } catch {
+            const text = String(row.message ?? '').trim();
+            if (text) writeToAgent(`${text}\n`);
           }
         }
-      }, 800);
-    } else {
-      insertEvent.run(Date.now(), sessionId, 'system', 'dashboard chat bridge disabled in interactive TTY mode');
-    }
+
+        if (row.kind === 'approval_decision') {
+          try {
+            const payload = row.message ? JSON.parse(row.message) : null;
+            const decision = String(payload?.decision ?? '').trim();
+            const note = String(payload?.note ?? '').trim();
+            if (decision) {
+              const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
+              writeToAgent(`${line}\n`);
+            }
+          } catch {
+            // no-op on malformed approval payload
+          }
+        }
+      }
+    }, 800);
 
     const heartbeat = setInterval(() => {
       insertEvent.run(Date.now(), sessionId, 'heartbeat', 'running');
     }, 5000);
 
     try {
-      const res = await child;
+      const res = await waitForExit;
       if (controlPump) clearInterval(controlPump);
       clearInterval(heartbeat);
       insertEvent.run(Date.now(), sessionId, 'stopped', `exit=${res.exitCode}`);
