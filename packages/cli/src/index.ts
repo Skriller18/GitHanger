@@ -149,8 +149,11 @@ program
     );
     insertEvent.run(now, sessionId, 'started', `${provider}:${name} on ${branch}`);
 
-    // Spawn agent with piped stdio so we can bridge dashboard chat -> agent stdin
-    // and stream agent output back into session events.
+    // Claude/Codex CLIs are interactive TTY apps. Running them with fully piped stdio
+    // can make them appear "stuck". If we have a TTY, prefer inherit mode.
+    const interactiveAgent = /(^|\/)claude$|(^|\/)codex$/i.test(cmd);
+    const useTtyInherit = interactiveAgent && Boolean(process.stdin.isTTY && process.stdout.isTTY);
+
     const child = execa(cmd, cmdArgs, {
       cwd: worktreePath,
       env: {
@@ -161,74 +164,80 @@ program
         GITHANGER_WORKTREE: worktreePath,
         GITHANGER_BRANCH: branch,
       },
-      stdio: 'pipe',
+      stdio: useTtyInherit ? 'inherit' : 'pipe',
     });
 
     db.prepare('UPDATE sessions SET pid=? WHERE id=?').run(child.pid ?? null, sessionId);
 
-    const outToEvent = createLineBuffer((line) => {
-      insertEvent.run(
-        Date.now(),
-        sessionId,
-        'chat_agent',
-        JSON.stringify({ role: 'agent', text: line })
-      );
-    });
+    let controlPump: NodeJS.Timeout | null = null;
 
-    child.stdout?.on('data', (chunk) => {
-      process.stdout.write(chunk);
-      outToEvent(chunk);
-    });
+    if (useTtyInherit) {
+      insertEvent.run(Date.now(), sessionId, 'system', 'stdio=inherit (TTY mode)');
+    } else {
+      const outToEvent = createLineBuffer((line) => {
+        insertEvent.run(
+          Date.now(),
+          sessionId,
+          'chat_agent',
+          JSON.stringify({ role: 'agent', text: line })
+        );
+      });
 
-    child.stderr?.on('data', (chunk) => {
-      process.stderr.write(chunk);
-      outToEvent(chunk);
-    });
+      child.stdout?.on('data', (chunk) => {
+        process.stdout.write(chunk);
+        outToEvent(chunk);
+      });
 
-    // Poll control events from DB and forward to the running agent process.
-    // This is intentionally simple and local-first for MVP reliability.
-    let lastControlEventId = 0;
-    const controlPump = setInterval(() => {
-      const rows = db
-        .prepare(
-          `SELECT id, kind, message
-           FROM events
-           WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
-           ORDER BY id ASC`
-        )
-        .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
+      child.stderr?.on('data', (chunk) => {
+        process.stderr.write(chunk);
+        outToEvent(chunk);
+      });
 
-      for (const row of rows) {
-        lastControlEventId = Math.max(lastControlEventId, row.id);
+      // Poll control events from DB and forward to the running agent process.
+      // This is intentionally simple and local-first for MVP reliability.
+      let lastControlEventId = 0;
+      controlPump = setInterval(() => {
+        const rows = db
+          .prepare(
+            `SELECT id, kind, message
+             FROM events
+             WHERE sessionId = ? AND id > ? AND kind IN ('chat_user', 'approval_decision')
+             ORDER BY id ASC`
+          )
+          .all(sessionId, lastControlEventId) as Array<{ id: number; kind: string; message: string | null }>;
 
-        if (!child.stdin || child.stdin.destroyed) continue;
+        for (const row of rows) {
+          lastControlEventId = Math.max(lastControlEventId, row.id);
 
-        if (row.kind === 'chat_user') {
-          try {
-            const payload = row.message ? JSON.parse(row.message) : null;
-            const text = String(payload?.text ?? '').trim();
-            if (text) child.stdin.write(`${text}\n`);
-          } catch {
-            const text = String(row.message ?? '').trim();
-            if (text) child.stdin.write(`${text}\n`);
-          }
-        }
+          if (!child.stdin || child.stdin.destroyed) continue;
 
-        if (row.kind === 'approval_decision') {
-          try {
-            const payload = row.message ? JSON.parse(row.message) : null;
-            const decision = String(payload?.decision ?? '').trim();
-            const note = String(payload?.note ?? '').trim();
-            if (decision) {
-              const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
-              child.stdin.write(`${line}\n`);
+          if (row.kind === 'chat_user') {
+            try {
+              const payload = row.message ? JSON.parse(row.message) : null;
+              const text = String(payload?.text ?? '').trim();
+              if (text) child.stdin.write(`${text}\n`);
+            } catch {
+              const text = String(row.message ?? '').trim();
+              if (text) child.stdin.write(`${text}\n`);
             }
-          } catch {
-            // no-op on malformed approval payload
+          }
+
+          if (row.kind === 'approval_decision') {
+            try {
+              const payload = row.message ? JSON.parse(row.message) : null;
+              const decision = String(payload?.decision ?? '').trim();
+              const note = String(payload?.note ?? '').trim();
+              if (decision) {
+                const line = note ? `[approval:${decision}] ${note}` : `[approval:${decision}]`;
+                child.stdin.write(`${line}\n`);
+              }
+            } catch {
+              // no-op on malformed approval payload
+            }
           }
         }
-      }
-    }, 800);
+      }, 800);
+    }
 
     const heartbeat = setInterval(() => {
       insertEvent.run(Date.now(), sessionId, 'heartbeat', 'running');
@@ -236,13 +245,13 @@ program
 
     try {
       const res = await child;
-      clearInterval(controlPump);
+      if (controlPump) clearInterval(controlPump);
       clearInterval(heartbeat);
       insertEvent.run(Date.now(), sessionId, 'stopped', `exit=${res.exitCode}`);
       db.prepare('UPDATE sessions SET status=?, endedAt=? WHERE id=?').run('stopped', Date.now(), sessionId);
       process.exit(res.exitCode ?? 0);
     } catch (err: any) {
-      clearInterval(controlPump);
+      if (controlPump) clearInterval(controlPump);
       clearInterval(heartbeat);
       insertEvent.run(Date.now(), sessionId, 'crashed', String(err?.shortMessage ?? err?.message ?? err));
       db.prepare('UPDATE sessions SET status=?, endedAt=? WHERE id=?').run('crashed', Date.now(), sessionId);
