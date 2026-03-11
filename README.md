@@ -1,81 +1,122 @@
 # GitHanger
 
-Local agent+git dashboard to track **which agent is working on which branch/worktree**, and to browse **diffs + commits**.
+GitHanger is a local git + agent workflow tool. It tracks agent sessions, worktrees, branch state, and diff/commit activity with a CLI plus local dashboard.
 
-## What it is (MVP)
-- Agents (Claude Code / Codex) are launched via `githanger run`.
-- Each agent gets its own git **worktree**, so you can freely jump branches in your own checkout without disrupting the agent.
-- A local server exposes session state (SQLite-backed) and (next) git diff/commit endpoints.
-- A local web UI (next) shows repos/branches/agents and branch detail pages.
+## Current features
 
-## Repo layout
-- `packages/cli` — `githanger` CLI
-- `packages/server` — local API server
-- `packages/web` — dashboard UI (Vite+React)
-- `packages/shared` — shared types + defaults
+- Dashboard repo view:
+  - registered repos
+  - local branches list
+  - branch creation from a selected source branch
+  - worktree table with dirty counts, open, jump, and managed-worktree remove
+- Session UI:
+  - global sessions list
+  - session detail page with live SSE activity stream
+  - chat event feed (`chat_user` / `chat_agent`)
+  - terminate and delete session controls
+- Worktree detail UI:
+  - staged / unstaged / untracked status sections
+  - per-file stage / unstage / discard actions
+  - commit input
+  - pull / push actions
+  - uncommitted + staged diff panes
+  - recent commits feed with pagination
+- Jump behavior:
+  - dedicated `me` worktree per repo
+  - auto-stash on branch leave when dirty
+  - auto-apply previously stashed branch state when jumping back
+- Git action behavior:
+  - `stage`: file or all changes (`git add`)
+  - `commit`: normal commit with provided message
+  - `pull`: `--ff-only`, requires configured upstream
+  - `push`: uses existing upstream, otherwise first push sets upstream (`origin` preferred)
+- Session/worktree management:
+  - tracked session records in local SQLite (`~/.githanger/githanger.sqlite`)
+  - managed worktree removal guarded to `.worktrees/githanger/*`
 
-## Quickstart (run locally)
+## Install (npm CLI)
 
-### One command setup (install + build + link CLI)
-From the repo root:
+Global install:
+
 ```bash
-cd GitHanger
-npm run setup
+npm install -g githanger
 ```
 
-This will:
-- `npm install`
-- build TypeScript packages
-- `npm link` the `githanger` command
+One-off usage with `npx`:
 
-Verify:
 ```bash
-githanger --help
+npx githanger --help
 ```
 
-### One command start (API + web UI)
-From the repo root:
+Core CLI usage:
+
 ```bash
-githanger start
-```
-
-(Equivalent: `npm run start`)
-
-Open the Vite URL (usually `http://localhost:5173`).
-
-### Register a repo
-```bash
+# register repo
 cd /path/to/your/repo
 githanger init
-```
 
-### Start an agent session (Claude Code or Codex)
-```bash
-cd /path/to/your/repo
+# create and run a tracked agent session in its own worktree
 githanger run
 ```
-Interactive prompts:
-- provider: `claude` or `codex`
-- session name
-- branch name
-- command to run (for you: `claude` or `codex`) + optional args
 
-Sessions are tracked in `~/.githanger/githanger.sqlite`.
+## Dashboard usage
 
-### Jump between branches (safe)
-Use the dashboard "Jump" buttons. GitHanger will:
-- switch your dedicated `me` worktree
-- auto-stash changes when you leave a branch
-- auto-apply the stash when you return
-- **never** disturb agent worktrees
+The dashboard (`githanger start`) is a source-checkout workflow in this repo.
 
-## Dev notes
-- `packages/cli` — CLI
-- `packages/server` — API
-- `packages/web` — UI
-- `packages/shared` — types
+```bash
+git clone https://github.com/Skriller18/GitHanger.git
+cd GitHanger
+npm install
+npm run build
+npm run start
+```
 
-## Roadmap (near-term)
-- Better UI for jump results (conflicts, applied stash info)
-- Branch-based navigation (not only worktrees) ✅ (local branches + compare view)
-- GitHub read-only integration (PR link + checks)
+Open `http://localhost:5173`.
+
+## Monorepo development
+
+Workspace layout:
+
+- `packages/cli` - `githanger` CLI package
+- `packages/server` - local Fastify API
+- `packages/web` - React dashboard
+- `packages/shared` - shared utilities/types
+
+Common commands:
+
+```bash
+npm run build
+npm run typecheck
+npm run lint
+npm run start
+```
+
+## npm publish notes (CLI)
+
+Build and create a local tarball:
+
+```bash
+npm run pack:cli
+```
+
+Dry-run package contents:
+
+```bash
+npm run pack:cli:dry
+```
+
+Publish:
+
+```bash
+npm run publish:cli
+```
+
+Versioning:
+
+```bash
+npm version patch   # or minor / major
+npm run pack:cli
+npm run publish:cli
+```
+
+This project is currently at `0.1.0`; use patch bumps for bug fixes, minor for backwards-compatible features, and major for breaking CLI changes.

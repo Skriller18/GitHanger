@@ -1,21 +1,46 @@
 {
   "name": "githanger",
   "version": "0.1.0",
-  "private": true,
+  "description": "GitHanger CLI for tracked agent sessions, worktrees, and branch workflows.",
   "type": "module",
   "bin": {
     "githanger": "bin/githanger.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Skriller18/GitHanger.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Skriller18/GitHanger#readme",
+  "bugs": {
+    "url": "https://github.com/Skriller18/GitHanger/issues"
+  },
+  "keywords": [
+    "git",
+    "worktree",
+    "cli",
+    "agent",
+    "dashboard"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint ."
   },
   "dependencies": {
-    "@githanger/shared": "file:../shared",
     "commander": "^12.1.0",
     "better-sqlite3": "^11.6.0",
     "execa": "^9.6.1",

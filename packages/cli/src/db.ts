@@ -1,9 +1,13 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
-import { defaultDataDir } from '@githanger/shared';
+import os from 'node:os';
 
 export type Db = Database.Database;
+
+function defaultDataDir() {
+  return path.join(os.homedir(), '.githanger');
+}
 
 export function openDb(dbPath?: string): Db {
   const dir = defaultDataDir();

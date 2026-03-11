@@ -13,6 +13,10 @@
     "dev": "npm run -w @githanger/server dev",
     "dev:web": "npm run -w @githanger/web dev",
     "build": "tsc -b && npm run -w @githanger/web build",
+    "build:cli": "npm run -w githanger build",
+    "pack:cli": "npm run build:cli && npm pack --workspace githanger",
+    "pack:cli:dry": "npm run build:cli && npm pack --workspace githanger --dry-run",
+    "publish:cli": "npm publish --workspace githanger",
     "typecheck": "tsc -b --pretty false --verbose false --noEmit",
     "lint": "npm run -ws lint"
   },

@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { execa } from 'execa';
-import { ProviderSchema } from '@githanger/shared';
+import { z } from 'zod';
 
 function createLineBuffer(onLine: (line: string) => void) {
   let buffer = '';
@@ -21,6 +21,8 @@ function createLineBuffer(onLine: (line: string) => void) {
 }
 import { openDb } from './db.js';
 import { ensureWorktree } from './git.js';
+
+const ProviderSchema = z.enum(['claude', 'codex']);
 
 const program = new Command();
 
@@ -310,11 +312,18 @@ program
 
 program
   .command('serve')
-  .description('Run the local GitHanger server (API).')
+  .description('Run the local GitHanger server (API) from a GitHanger source checkout.')
   .option('--port <port>', 'Port (default 4545)')
   .action(async (opts) => {
     const port = String(opts.port ?? '4545');
-    await execa('node', ['../../packages/server/dist/index.js'], {
+    const serverEntry = path.resolve(process.cwd(), 'packages/server/dist/index.js');
+    if (!fs.existsSync(serverEntry)) {
+      throw new Error(
+        'Server build not found. Run this from the GitHanger repo root after `npm run build`.'
+      );
+    }
+
+    await execa('node', [serverEntry], {
       stdio: 'inherit',
       env: { ...process.env, GITHANGER_PORT: port },
     });
@@ -322,10 +331,18 @@ program
 
 program
   .command('start')
-  .description('Start API server + web dashboard (run from GitHanger repo root).')
+  .description('Start API server + web dashboard from a GitHanger source checkout.')
   .action(async () => {
-    // Assumes you are in the GitHanger repo root where package.json has the start script.
-    await execa('npm', ['run', 'start'], { stdio: 'inherit' });
+    const rootPkg = path.resolve(process.cwd(), 'package.json');
+    if (!fs.existsSync(rootPkg)) {
+      throw new Error(
+        'No package.json in current directory. Run this from the GitHanger repo root.'
+      );
+    }
+    await execa('npm', ['run', 'start'], {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+    });
   });
 
 await program.parseAsync(process.argv);
