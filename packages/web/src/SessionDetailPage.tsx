@@ -125,14 +125,14 @@ export function SessionDetailPage() {
     return [...events].sort((a, b) => b.ts - a.ts);
   }, [events]);
 
-  if (err) return <div style={{ color: 'crimson' }}>{err}</div>;
+  if (err) return <div style={{ color: 'var(--danger)' }}>{err}</div>;
   if (!session) return <div>Loading…</div>;
 
   return (
-    <div>
+    <div className="gh-session-detail">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>{session.name}</h3>
-        <div style={{ color: '#666' }}>{session.status}</div>
+        <div className="gh-muted" style={{ fontWeight: 700 }}>{session.status}</div>
       </div>
 
       <div className="gh-card" style={{ marginBottom: 16 }}>
@@ -207,14 +207,9 @@ export function SessionDetailPage() {
               {chatMessages.map((m) => (
                 <div
                   key={m.id}
-                  style={{
-                    padding: 10,
-                    borderRadius: 10,
-                    border: '1px solid #e9e9e9',
-                    background: m.role === 'user' ? '#f7faff' : '#fafafa',
-                  }}
+                  className={`gh-chat-bubble ${m.role === 'user' ? 'is-user' : 'is-agent'}`}
                 >
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>
+                  <div className="gh-chat-meta">
                     {m.role === 'user' ? 'You' : 'Agent'} · {new Date(m.ts).toLocaleTimeString()}
                   </div>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
@@ -255,12 +250,12 @@ export function SessionDetailPage() {
           <div className="gh-card-header">Live activity stream</div>
           <div className="gh-card-body" style={{ maxHeight: 420, overflow: 'auto', display: 'grid', gap: 8 }}>
             {activityEvents.map((e, idx) => (
-              <div key={`${e.ts}-${idx}`} style={{ border: '1px solid #eee', borderRadius: 10, padding: 10 }}>
+              <div key={`${e.ts}-${idx}`} className="gh-activity-row">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <b>{e.kind}</b>
                   <span className="gh-muted" style={{ fontSize: 12 }}>{new Date(e.ts).toLocaleString()}</span>
                 </div>
-                {e.message ? <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>{e.message}</pre> : null}
+                {e.message ? <pre className="gh-activity-message">{e.message}</pre> : null}
               </div>
             ))}
             {!activityEvents.length ? <div className="gh-muted">No events yet.</div> : null}

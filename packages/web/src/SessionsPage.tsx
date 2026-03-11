@@ -53,23 +53,24 @@ export function SessionsPage() {
             key={s.id}
             to={`/session/${s.id}`}
             style={{
-              border: '1px solid #ddd',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: 12,
               textDecoration: 'none',
-              color: '#111',
+              color: 'var(--text)',
+              background: 'var(--panel-soft)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ fontWeight: 700 }}>
-                {s.name} <span style={{ color: '#666', fontWeight: 400 }}>({s.provider})</span>
+                {s.name} <span className="gh-muted" style={{ fontWeight: 400 }}>({s.provider})</span>
               </div>
-              <div style={{ color: s.status === 'running' ? '#0a7' : s.status === 'crashed' ? 'crimson' : '#666' }}>
+              <div style={{ color: s.status === 'running' ? 'var(--accent2)' : s.status === 'crashed' ? 'var(--danger)' : 'var(--muted)' }}>
                 {s.status}
               </div>
             </div>
-            <div style={{ marginTop: 6, color: '#666' }}>{s.branch}</div>
-            <div style={{ marginTop: 6, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', color: '#666' }}>
+            <div className="gh-muted" style={{ marginTop: 6 }}>{s.branch}</div>
+            <div className="gh-muted" style={{ marginTop: 6, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
               {s.worktreePath}
             </div>
           </Link>

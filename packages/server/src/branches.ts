@@ -86,4 +86,51 @@ export async function registerBranchApi(app: FastifyInstance, db: Db) {
     const files = await branchDiff(repo.path, q.name, q.base);
     return { files };
   });
+
+  app.post('/api/repos/:id/branches', async (req, reply) => {
+    const Params = z.object({ id: z.string().min(1) });
+    const Body = z.object({
+      name: z.string().min(1),
+      source: z.string().min(1),
+    });
+
+    const { id } = Params.parse((req as any).params);
+    const body = Body.parse((req as any).body);
+
+    const repo = db.prepare('SELECT * FROM repos WHERE id=?').get(id) as any;
+    if (!repo) return reply.code(404).send({ error: 'repo_not_found', message: 'Repository not found.' });
+
+    const branchName = body.name.trim();
+    const sourceBranch = body.source.trim();
+    if (!branchName) return reply.code(400).send({ error: 'invalid_branch_name', message: 'Branch name is required.' });
+
+    try {
+      await git(['-C', repo.path, 'check-ref-format', '--branch', branchName]);
+    } catch {
+      return reply.code(400).send({ error: 'invalid_branch_name', message: `Invalid branch name: ${branchName}` });
+    }
+
+    try {
+      await git(['-C', repo.path, 'show-ref', '--verify', '--quiet', `refs/heads/${sourceBranch}`]);
+    } catch {
+      return reply.code(400).send({ error: 'invalid_source_branch', message: `Source branch not found: ${sourceBranch}` });
+    }
+
+    try {
+      await git(['-C', repo.path, 'show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]);
+      return reply.code(409).send({ error: 'branch_exists', message: `Branch already exists: ${branchName}` });
+    } catch {
+      // Branch doesn't exist yet; proceed.
+    }
+
+    try {
+      await git(['-C', repo.path, 'branch', '--no-track', branchName, sourceBranch]);
+      return { ok: true, name: branchName, source: sourceBranch };
+    } catch (e: any) {
+      return reply.code(500).send({
+        error: 'create_branch_failed',
+        message: e?.shortMessage ?? e?.message ?? 'Failed to create branch.',
+      });
+    }
+  });
 }

@@ -79,11 +79,29 @@ export async function commit(worktreePath: string, message: string) {
 }
 
 export async function pull(worktreePath: string) {
-  return await git(['-C', worktreePath, 'pull']);
+  const u = await upstream(worktreePath);
+  if (!u) {
+    throw new Error('No upstream is configured for this branch. Set upstream before pulling.');
+  }
+  return await git(['-C', worktreePath, 'pull', '--ff-only']);
 }
 
 export async function push(worktreePath: string) {
-  return await git(['-C', worktreePath, 'push']);
+  const branch = await currentBranch(worktreePath);
+  const u = await upstream(worktreePath);
+  if (u) {
+    return await git(['-C', worktreePath, 'push']);
+  }
+
+  const remotes = (await git(['-C', worktreePath, 'remote']))
+    .split('\n')
+    .map((r) => r.trim())
+    .filter(Boolean);
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0];
+  if (!remote) {
+    throw new Error('No git remote found. Add a remote before pushing.');
+  }
+  return await git(['-C', worktreePath, 'push', '-u', remote, branch]);
 }
 
 export async function commitLog(worktreePath: string, limit = 50, skip = 0) {

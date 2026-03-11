@@ -184,6 +184,17 @@ function RepoPage() {
   const [sessions, setSessions] = React.useState<any[]>([]);
   const [branches, setBranches] = React.useState<Array<{ name: string; upstream: string | null; isHead: boolean }>>([]);
   const [err, setErr] = React.useState<string | null>(null);
+  const [newBranchName, setNewBranchName] = React.useState('');
+  const [newBranchSource, setNewBranchSource] = React.useState('');
+  const [branchBusy, setBranchBusy] = React.useState(false);
+  const [actionMsg, setActionMsg] = React.useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  function showAction(kind: 'success' | 'error', text: string) {
+    setActionMsg({ kind, text });
+    window.setTimeout(() => {
+      setActionMsg((prev) => (prev?.text === text ? null : prev));
+    }, 3500);
+  }
 
   async function refreshRepo() {
     setErr(null);
@@ -199,6 +210,7 @@ function RepoPage() {
       ]);
       setSessions(s.sessions);
       setBranches(b.branches);
+      if (!newBranchSource && b.branches.length > 0) setNewBranchSource(b.branches[0].name);
     } catch (e: any) {
       setErr(e.message ?? String(e));
     }
@@ -224,6 +236,8 @@ function RepoPage() {
           {repo.path}
         </div>
       </div>
+
+      {actionMsg ? <div className={`gh-toast ${actionMsg.kind === 'error' ? 'is-error' : 'is-success'}`}>{actionMsg.text}</div> : null}
 
       {/* me branch status is shown in the global header */}
 
@@ -252,7 +266,50 @@ function RepoPage() {
 
         <div className="gh-card">
           <div className="gh-card-header">Branches</div>
-          <div className="gh-card-body" style={{ display: 'grid', gap: 8, maxHeight: 280, overflow: 'auto' }}>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const name = newBranchName.trim();
+                const source = newBranchSource.trim();
+                if (!name || !source || branchBusy) return;
+                setBranchBusy(true);
+                try {
+                  await apiPost(`/api/repos/${repo.id}/branches`, { name, source });
+                  setNewBranchName('');
+                  showAction('success', `Created branch ${name} from ${source}`);
+                  await refreshRepo();
+                } catch (error: any) {
+                  showAction('error', error.message ?? String(error));
+                } finally {
+                  setBranchBusy(false);
+                }
+              }}
+              style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) minmax(140px, 1fr) auto', gap: 8 }}
+            >
+              <select
+                value={newBranchSource}
+                onChange={(e) => setNewBranchSource(e.target.value)}
+                disabled={branchBusy || !branches.length}
+              >
+                {branches.map((b) => (
+                  <option key={b.name} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="new-branch-name"
+                disabled={branchBusy}
+              />
+              <button type="submit" className="gh-btn-primary" disabled={branchBusy || !newBranchName.trim() || !newBranchSource.trim()}>
+                Create
+              </button>
+            </form>
+
+            <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflow: 'auto' }}>
             {branches.map((b) => (
               <Link
                 key={b.name}
@@ -272,6 +329,7 @@ function RepoPage() {
               </Link>
             ))}
             {!branches.length ? <div className="gh-muted">No local branches found.</div> : null}
+            </div>
           </div>
         </div>
       </div>
@@ -309,10 +367,9 @@ function RepoPage() {
                         if (!wt.branch) return;
                         try {
                           const res: any = await apiPost(`/api/repos/${repo.id}/jump`, { branch: wt.branch });
-                          // TODO: replace with toast
-                          alert(res.applyError ? `Jumped, but stash apply failed: ${res.applyError}` : `Jumped me to ${wt.branch}`);
+                          showAction('success', res.applyError ? `Jumped, stash apply failed: ${res.applyError}` : `Jumped me to ${wt.branch}`);
                         } catch (e: any) {
-                          alert(e.message ?? String(e));
+                          showAction('error', e.message ?? String(e));
                         }
                       }}
                     >
@@ -335,8 +392,9 @@ function RepoPage() {
                             // refresh list
                             const data = await apiGet<{ repo: Repo; worktrees: Worktree[] }>(`/api/repos/${repo.id}/worktrees`);
                             setWorktrees(data.worktrees);
+                            showAction('success', 'Worktree removed.');
                           } catch (e: any) {
-                            alert(e.message ?? String(e));
+                            showAction('error', e.message ?? String(e));
                           }
                         }}
                         style={{ background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
@@ -377,6 +435,28 @@ function WorktreePage() {
     untracked: Array<{ xy: string; file: string }>;
   }>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const [commitMessage, setCommitMessage] = React.useState('');
+  const [actionBusy, setActionBusy] = React.useState<null | 'stage' | 'commit' | 'pull' | 'push'>(null);
+  const [actionMsg, setActionMsg] = React.useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  function showAction(kind: 'success' | 'error', text: string) {
+    setActionMsg({ kind, text });
+    window.setTimeout(() => {
+      setActionMsg((prev) => (prev?.text === text ? null : prev));
+    }, 3500);
+  }
+
+  async function runAction(kind: 'stage' | 'commit' | 'pull' | 'push', fn: () => Promise<void>) {
+    if (actionBusy) return;
+    setActionBusy(kind);
+    try {
+      await fn();
+    } catch (e: any) {
+      showAction('error', e.message ?? String(e));
+    } finally {
+      setActionBusy(null);
+    }
+  }
 
   async function refreshAll() {
     setErr(null);
@@ -432,6 +512,8 @@ function WorktreePage() {
         ← Back
       </button>
 
+      {actionMsg ? <div className={`gh-toast ${actionMsg.kind === 'error' ? 'is-error' : 'is-success'}`}>{actionMsg.text}</div> : null}
+
       <div className="gh-card" style={{ marginBottom: 12 }}>
         <div className="gh-card-body" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
@@ -458,51 +540,73 @@ function WorktreePage() {
       <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', marginBottom: 12 }}>
         <div className="gh-card">
           <div className="gh-card-header">Git actions</div>
-          <div className="gh-card-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'minmax(200px, 1fr) auto' }}>
+              <input
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Commit message"
+                disabled={!repoId || actionBusy === 'commit'}
+              />
+              <button
+                disabled={!repoId || actionBusy !== null || !commitMessage.trim()}
+                onClick={async () => {
+                  const message = commitMessage.trim();
+                  await runAction('commit', async () => {
+                    await apiPost('/api/worktree/commit', { repoId, worktreePath: wtPath, message });
+                    setCommitMessage('');
+                    showAction('success', 'Commit created.');
+                    await refreshAll();
+                  });
+                }}
+              >
+                {actionBusy === 'commit' ? 'Committing…' : 'Commit'}
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button
               className="gh-btn-primary"
-              disabled={!repoId}
+              disabled={!repoId || actionBusy !== null}
               onClick={async () => {
-                await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath });
-                await refreshAll();
+                await runAction('stage', async () => {
+                  await apiPost('/api/worktree/stage', { repoId, worktreePath: wtPath });
+                  showAction('success', 'Staged all changes.');
+                  await refreshAll();
+                });
               }}
             >
-              Stage all
+              {actionBusy === 'stage' ? 'Staging…' : 'Stage all'}
             </button>
 
             <button
-              disabled={!repoId}
+              disabled={!repoId || actionBusy !== null}
               onClick={async () => {
-                const message = prompt('Commit message:');
-                if (!message) return;
-                await apiPost('/api/worktree/commit', { repoId, worktreePath: wtPath, message });
-                await refreshAll();
+                await runAction('pull', async () => {
+                  await apiPost('/api/worktree/pull', { repoId, worktreePath: wtPath });
+                  showAction('success', 'Pull completed.');
+                  await refreshAll();
+                });
               }}
             >
-              Commit
+              {actionBusy === 'pull' ? 'Pulling…' : 'Pull'}
             </button>
 
             <button
-              disabled={!repoId}
+              disabled={!repoId || actionBusy !== null}
               onClick={async () => {
-                await apiPost('/api/worktree/pull', { repoId, worktreePath: wtPath });
-                await refreshAll();
+                await runAction('push', async () => {
+                  await apiPost('/api/worktree/push', { repoId, worktreePath: wtPath });
+                  showAction('success', 'Push completed.');
+                  await refreshAll();
+                });
               }}
             >
-              Pull
-            </button>
-
-            <button
-              disabled={!repoId}
-              onClick={async () => {
-                await apiPost('/api/worktree/push', { repoId, worktreePath: wtPath });
-                await refreshAll();
-              }}
-            >
-              Push
+              {actionBusy === 'push' ? 'Pushing…' : 'Push'}
             </button>
 
             {!repoId ? <span className="gh-muted" style={{ fontSize: 12 }}>Actions disabled (missing repoId)</span> : null}
+            </div>
           </div>
         </div>
 
