@@ -17,13 +17,6 @@ type Session = {
 
 type Event = { ts: number; kind: string; message?: string | null };
 
-type ChatMessage = {
-  id: string;
-  ts: number;
-  role: 'user' | 'agent';
-  text: string;
-};
-
 type ApprovalRequest = {
   requestId: string;
   title: string;
@@ -31,11 +24,13 @@ type ApprovalRequest = {
   meta?: Record<string, unknown>;
 };
 
-type EventVisual = {
-  icon: string;
-  label: string;
-  tone: 'chat' | 'system' | 'approval' | 'runtime' | 'error';
-};
+type EventTone = 'success' | 'warn' | 'error' | 'system';
+type DerivedState = 'running' | 'waiting' | 'blocked' | 'crashed' | 'stale';
+type MilestoneKind = 'task' | 'test' | 'commit' | 'approval' | 'runtime';
+
+type ConsoleRow =
+  | { kind: 'event'; event: Event; tone: EventTone; summary: string }
+  | { kind: 'heartbeat'; count: number; firstTs: number; lastTs: number };
 
 function parseJson<T>(value: string | null | undefined): T | null {
   if (!value) return null;
@@ -46,75 +41,129 @@ function parseJson<T>(value: string | null | undefined): T | null {
   }
 }
 
-function toChatMessage(e: Event): ChatMessage | null {
-  if (!['chat_user', 'chat_agent'].includes(e.kind)) return null;
-  const payload = parseJson<{ role?: 'user' | 'agent'; text?: string }>(e.message);
-  const text = payload?.text ?? e.message ?? '';
-  if (!text.trim()) return null;
-  const role = e.kind === 'chat_user' ? 'user' : payload?.role === 'agent' ? 'agent' : 'agent';
-  return {
-    id: `${e.ts}-${e.kind}-${text.slice(0, 10)}`,
-    ts: e.ts,
-    role,
-    text,
-  };
+function lower(value: string | null | undefined): string {
+  return (value ?? '').toLowerCase();
 }
 
-function statusMood(status: Session['status']) {
-  if (status === 'running') return 'thinking';
-  if (status === 'crashed') return 'blocked';
-  return 'idle';
+function isHeartbeatEvent(e: Event): boolean {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+  return k.includes('heartbeat') || m.includes('heartbeat_ok') || m === 'heartbeat_ok' || m.includes('heartbeat');
 }
 
-function hashSeed(input: string): number {
-  let h = 0;
-  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) | 0;
-  return Math.abs(h);
+function isErrorEvent(e: Event): boolean {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+  return (
+    k.includes('error') ||
+    k.includes('crash') ||
+    m.includes('error') ||
+    m.includes('exception') ||
+    m.includes('failed')
+  );
 }
 
-function personaFor(session: Session) {
-  const first = ['Nova', 'Zara', 'Kiro', 'Milo', 'Echo', 'Vega', 'Nyx', 'Rin', 'Orin', 'Kael'];
-  const second = ['Flux', 'Byte', 'Spark', 'Orbit', 'Pulse', 'Forge', 'Drift', 'Wisp', 'Core', 'Glint'];
-  const emojis = ['🤖', '🧠', '🛠️', '⚡', '🛰️', '🧪', '🎯', '🔥', '🦾', '✨'];
-  const vibes = [
-    'Fast executor with frequent checkpoints.',
-    'Calm operator with clean context handoffs.',
-    'Focused debugger for tricky flows.',
-    'Explores before committing to a direction.',
-    'High-energy builder for live missions.',
-  ];
-
-  const seed = hashSeed(session.id);
-  return {
-    name: `${first[seed % first.length]} ${second[(seed >> 2) % second.length]}`,
-    emoji: emojis[(seed >> 4) % emojis.length],
-    personality: vibes[(seed >> 6) % vibes.length],
-  };
+function isSuccessEvent(e: Event): boolean {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+  return (
+    k.includes('success') ||
+    k.includes('passed') ||
+    k.includes('complete') ||
+    k.includes('approved') ||
+    m.includes('test passed') ||
+    m.includes('tests passed') ||
+    m.includes('completed') ||
+    m.includes('approved') ||
+    m.includes('commit')
+  );
 }
 
-function visualForEvent(kind: string): EventVisual {
-  if (kind === 'chat_user') return { icon: '💬', label: 'User chat', tone: 'chat' };
-  if (kind === 'chat_agent') return { icon: '🤖', label: 'Agent reply', tone: 'chat' };
-  if (kind === 'approval_required') return { icon: '🛂', label: 'Approval required', tone: 'approval' };
-  if (kind.includes('error') || kind === 'crashed') return { icon: '⛔', label: 'Error', tone: 'error' };
-  if (kind.includes('start') || kind.includes('stop') || kind.includes('terminate')) {
-    return { icon: '⚙️', label: 'Runtime', tone: 'runtime' };
+function isWarnEvent(e: Event): boolean {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+  return k.includes('approval') || k.includes('warn') || k.includes('timeout') || m.includes('waiting') || m.includes('retry');
+}
+
+function eventTone(e: Event): EventTone {
+  if (isErrorEvent(e)) return 'error';
+  if (isSuccessEvent(e)) return 'success';
+  if (isWarnEvent(e)) return 'warn';
+  return 'system';
+}
+
+function eventSummary(e: Event): string {
+  if (e.kind === 'approval_required') return 'Approval required';
+  if (e.kind === 'approval_decision') {
+    const payload = parseJson<{ decision?: string }>(e.message);
+    return `Approval ${payload?.decision ?? 'updated'}`;
   }
-  return { icon: '📡', label: 'System', tone: 'system' };
-}
 
-function summarizeActivity(e: Event): string {
-  if (e.kind === 'chat_user') return 'Operator sent a mission prompt.';
-  if (e.kind === 'chat_agent') return 'Agent posted a live response.';
-  if (e.kind === 'approval_required') return 'Risky action paused, waiting for approval.';
-  if (e.kind.includes('error') || e.kind === 'crashed') return 'An execution error was reported.';
+  const payload = parseJson<{ text?: string; detail?: string; title?: string }>(e.message);
+  const message = payload?.text ?? payload?.detail ?? payload?.title ?? e.message ?? '';
+  const shortMsg = message.replace(/\s+/g, ' ').trim();
+
+  if (shortMsg) return shortMsg.length > 120 ? `${shortMsg.slice(0, 117)}...` : shortMsg;
   return e.kind.replaceAll('_', ' ');
 }
 
-function friendlyIntent(session: Session): string {
-  if (session.status === 'running') return `Running on ${session.branch} and streaming mission telemetry.`;
-  if (session.status === 'crashed') return 'Execution interrupted. Needs human intervention to continue.';
-  return 'Standing by for the next operator instruction.';
+function isMeaningfulEvent(e: Event): boolean {
+  if (isHeartbeatEvent(e)) return false;
+  const k = lower(e.kind);
+  if (k.includes('stream_ready') || k.includes('connected') || k.includes('ping')) return false;
+  return true;
+}
+
+function formatAge(ms: number | null): string {
+  if (ms == null || Number.isNaN(ms)) return '—';
+  if (ms < 1000) return '<1s';
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m`;
+}
+
+function deriveState(input: {
+  session: Session;
+  lastHeartbeatTs: number | null;
+  lastMeaningfulTs: number | null;
+  hasPendingApproval: boolean;
+  now: number;
+}): DerivedState {
+  const { session, lastHeartbeatTs, lastMeaningfulTs, hasPendingApproval, now } = input;
+  if (session.status === 'crashed') return 'crashed';
+  if (session.status !== 'running') return 'waiting';
+
+  const heartbeatAge = lastHeartbeatTs ? now - lastHeartbeatTs : Infinity;
+  const meaningfulAge = lastMeaningfulTs ? now - lastMeaningfulTs : Infinity;
+
+  if (heartbeatAge > 2 * 60_000) return 'stale';
+  if (hasPendingApproval || meaningfulAge > 3 * 60_000) return 'blocked';
+  if (meaningfulAge > 45_000) return 'waiting';
+  return 'running';
+}
+
+function detectMilestone(e: Event): { kind: MilestoneKind; label: string } | null {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+
+  if (k.includes('approval_required')) return { kind: 'approval', label: 'Approval required' };
+  if (k.includes('approval_decision')) return { kind: 'approval', label: 'Approval decision' };
+  if (k.includes('start') || m.includes('task started') || m.includes('starting task')) return { kind: 'task', label: 'Task started' };
+  if (m.includes('tests passed') || m.includes('test passed') || k.includes('test_pass')) return { kind: 'test', label: 'Tests passed' };
+  if (k.includes('commit') || m.includes('commit ') || m.includes('committed')) return { kind: 'commit', label: 'Commit' };
+  if (k.includes('terminate') || k.includes('stop')) return { kind: 'runtime', label: 'Runtime change' };
+
+  return null;
+}
+
+function toneIcon(tone: EventTone): string {
+  if (tone === 'success') return '✓';
+  if (tone === 'warn') return '!';
+  if (tone === 'error') return '✕';
+  return '•';
 }
 
 export function SessionDetailPage() {
@@ -123,10 +172,14 @@ export function SessionDetailPage() {
   const [events, setEvents] = React.useState<Event[]>([]);
   const [repoId, setRepoId] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
-
-  const [chatInput, setChatInput] = React.useState('');
-  const [sendingChat, setSendingChat] = React.useState(false);
   const [pendingApproval, setPendingApproval] = React.useState<ApprovalRequest | null>(null);
+  const [includeHeartbeatNoise, setIncludeHeartbeatNoise] = React.useState(false);
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   React.useEffect(() => {
     (async () => {
@@ -179,179 +232,257 @@ export function SessionDetailPage() {
     };
   }, [id]);
 
-  const chatMessages = React.useMemo(() => {
-    const fromEvents = events.map(toChatMessage).filter(Boolean) as ChatMessage[];
-    return [...fromEvents].sort((a, b) => a.ts - b.ts);
-  }, [events]);
+  const sortedEvents = React.useMemo(() => [...events].sort((a, b) => b.ts - a.ts), [events]);
 
-  const activityEvents = React.useMemo(() => {
-    return [...events].sort((a, b) => b.ts - a.ts);
-  }, [events]);
+  const lastHeartbeatTs = React.useMemo(() => {
+    const e = sortedEvents.find(isHeartbeatEvent);
+    return e?.ts ?? null;
+  }, [sortedEvents]);
+
+  const meaningfulEvents = React.useMemo(() => sortedEvents.filter(isMeaningfulEvent), [sortedEvents]);
+
+  const lastMeaningfulEvent = meaningfulEvents[0] ?? null;
+  const lastMeaningfulTs = lastMeaningfulEvent?.ts ?? null;
+
+  const derivedState = React.useMemo(() => {
+    if (!session) return 'waiting' as DerivedState;
+    return deriveState({
+      session,
+      lastHeartbeatTs,
+      lastMeaningfulTs,
+      hasPendingApproval: Boolean(pendingApproval),
+      now,
+    });
+  }, [session, lastHeartbeatTs, lastMeaningfulTs, pendingApproval, now]);
+
+  const consoleRows = React.useMemo((): ConsoleRow[] => {
+    if (includeHeartbeatNoise) {
+      return sortedEvents.map((event) => ({ kind: 'event', event, tone: eventTone(event), summary: eventSummary(event) }));
+    }
+
+    const rows: ConsoleRow[] = [];
+    let heartbeatCount = 0;
+    let heartbeatFirst = 0;
+    let heartbeatLast = 0;
+
+    const flushHeartbeat = () => {
+      if (!heartbeatCount) return;
+      rows.push({
+        kind: 'heartbeat',
+        count: heartbeatCount,
+        firstTs: heartbeatFirst,
+        lastTs: heartbeatLast,
+      });
+      heartbeatCount = 0;
+      heartbeatFirst = 0;
+      heartbeatLast = 0;
+    };
+
+    for (const event of sortedEvents) {
+      if (isHeartbeatEvent(event)) {
+        heartbeatCount += 1;
+        if (!heartbeatFirst) heartbeatFirst = event.ts;
+        heartbeatLast = event.ts;
+        continue;
+      }
+      flushHeartbeat();
+      rows.push({ kind: 'event', event, tone: eventTone(event), summary: eventSummary(event) });
+    }
+
+    flushHeartbeat();
+    return rows;
+  }, [includeHeartbeatNoise, sortedEvents]);
+
+  const errorsLast15m = React.useMemo(() => {
+    const cutoff = now - 15 * 60_000;
+    return sortedEvents.filter((e) => e.ts >= cutoff && eventTone(e) === 'error').length;
+  }, [sortedEvents, now]);
+
+  const commandsPerMin = React.useMemo(() => {
+    const lookbackMs = 10 * 60_000;
+    const cutoff = now - lookbackMs;
+    const commandLike = sortedEvents.filter((e) => {
+      if (e.ts < cutoff) return false;
+      const k = lower(e.kind);
+      const m = lower(e.message);
+      return k.includes('chat_user') || k.includes('command') || k.includes('exec') || m.includes('run ') || m.includes('tool');
+    }).length;
+    return commandLike / 10;
+  }, [sortedEvents, now]);
+
+  const stuck = Boolean(session?.status === 'running' && (!lastMeaningfulTs || now - lastMeaningfulTs > 3 * 60_000));
+
+  const milestones = React.useMemo(() => {
+    const chips: Array<{ key: string; label: string; kind: MilestoneKind; ts: number }> = [];
+    const seen = new Set<string>();
+
+    for (const e of meaningfulEvents) {
+      const m = detectMilestone(e);
+      if (!m) continue;
+      const key = `${m.kind}:${m.label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      chips.push({ key, label: m.label, kind: m.kind, ts: e.ts });
+      if (chips.length >= 8) break;
+    }
+
+    return chips.sort((a, b) => b.ts - a.ts);
+  }, [meaningfulEvents]);
 
   if (err) return <div style={{ color: 'var(--danger)' }}>{err}</div>;
   if (!session) return <div>Loading…</div>;
 
-  const persona = personaFor(session);
-  const mood = statusMood(session.status);
+  const diffLink = repoId
+    ? `/repo/${repoId}/wt?path=${encodeURIComponent(session.worktreePath)}`
+    : `/wt?path=${encodeURIComponent(session.worktreePath)}`;
 
   return (
     <div className="gh-session-detail">
-      <div className="gh-stage-hero" style={{ marginBottom: 12 }}>
-        <div className="gh-stage-hero-main">
-          <div className={`gh-agent-avatar gh-stage-hero-avatar is-${mood}`}>
-            <span>{persona.emoji}</span>
+      <div className="gh-card gh-live-rail" style={{ marginBottom: 12 }}>
+        <div className="gh-card-header">Live Status Rail</div>
+        <div className="gh-card-body gh-live-rail-grid">
+          <div className="gh-live-rail-item">
+            <div className="gh-muted">Derived state</div>
+            <div className={`gh-status-badge is-${derivedState}`}>{derivedState}</div>
           </div>
-          <div>
-            <div className="gh-stage-hero-title">{session.name}</div>
-            <div className="gh-stage-hero-subtitle">
-              {persona.name} · role: {session.name} · {session.provider}
-            </div>
-            <div className="gh-stage-intent">{friendlyIntent(session)}</div>
+          <div className="gh-live-rail-item">
+            <div className="gh-muted">Last heartbeat age</div>
+            <div className="gh-code">{formatAge(lastHeartbeatTs ? now - lastHeartbeatTs : null)}</div>
           </div>
-        </div>
-        <div className={`gh-status-badge is-${session.status}`}>{session.status}</div>
-      </div>
-
-      <div className="gh-card" style={{ marginBottom: 16 }}>
-        <div className="gh-card-body">
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div><b>Provider:</b> {session.provider}</div>
-              <div><b>Branch:</b> {session.branch}</div>
-              <div className="gh-code gh-muted" style={{ marginTop: 8 }}>{session.worktreePath}</div>
-              <div className="gh-muted" style={{ marginTop: 8, fontSize: 12 }}>{persona.personality}</div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <button
-                className="gh-btn-primary"
-                disabled={session.status !== 'running' || !session.pid}
-                onClick={async () => {
-                  const ok = confirm(`Terminate session?\n\n${session.name} (pid=${session.pid ?? '—'})`);
-                  if (!ok) return;
-                  const res: any = await apiPost(`/api/sessions2/${session.id}/terminate`, {});
-                  if (!res.ok) alert(res.message ?? res.error ?? 'terminate failed');
-                  window.location.reload();
-                }}
-              >
-                Terminate
-              </button>
-
-              <button
-                onClick={async () => {
-                  const ok = confirm(`Delete session record (and remove worktree if managed)?\n\n${session.name}`);
-                  if (!ok) return;
-                  const res: any = await apiPost(`/api/sessions2/${session.id}/delete`, { removeWorktree: true });
-                  if (res.worktreeRemoveError) alert(`Worktree remove error: ${res.worktreeRemoveError}`);
-                  window.location.href = '/sessions';
-                }}
-                style={{ background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
-              >
-                Delete
-              </button>
-
-              <button
-                onClick={async () => {
-                  await apiPost(`/api/sessions2/${session.id}/approval-required`, {
-                    title: 'Approve potentially risky command',
-                    detail: 'Agent wants to run: git push --force-with-lease',
-                  });
-                }}
-              >
-                Simulate approval
-              </button>
-            </div>
+          <div className="gh-live-rail-item">
+            <div className="gh-muted">Last meaningful event age</div>
+            <div className="gh-code">{formatAge(lastMeaningfulTs ? now - lastMeaningfulTs : null)}</div>
           </div>
-
-          <div style={{ marginTop: 10 }}>
-            {repoId ? (
-              <Link to={`/repo/${repoId}/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
-                View worktree diff/commits
-              </Link>
-            ) : (
-              <Link to={`/wt?path=${encodeURIComponent(session.worktreePath)}`} className="gh-pill">
-                View worktree diff/commits
-              </Link>
-            )}
+          <div className="gh-live-rail-item">
+            <div className="gh-muted">Branch + pid</div>
+            <div className="gh-code">{session.branch} · pid {session.pid ?? '—'}</div>
+          </div>
+          <div className="gh-live-rail-item gh-live-rail-item-wide">
+            <div className="gh-muted">Last meaningful action</div>
+            <div className="gh-code">{lastMeaningfulEvent ? eventSummary(lastMeaningfulEvent) : 'No meaningful activity yet'}</div>
           </div>
         </div>
       </div>
 
-      <div className="gh-grid gh-session-detail-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="gh-milestones" style={{ marginBottom: 12 }}>
+        {milestones.length ? (
+          milestones.map((m) => (
+            <span key={m.key} className={`gh-milestone-chip is-${m.kind}`} title={new Date(m.ts).toLocaleString()}>
+              {m.label}
+            </span>
+          ))
+        ) : (
+          <span className="gh-muted">No milestones detected yet.</span>
+        )}
+      </div>
+
+      <div className="gh-grid gh-session-detail-grid gh-monitor-grid" style={{ gap: 12 }}>
         <div className="gh-card">
-          <div className="gh-card-header">Chat</div>
-          <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
-            <div style={{ maxHeight: 320, overflow: 'auto', display: 'grid', gap: 8 }}>
-              {chatMessages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`gh-chat-bubble ${m.role === 'user' ? 'is-user' : 'is-agent'}`}
-                >
-                  <div className="gh-chat-meta">
-                    <span className={`gh-event-chip is-${m.role === 'user' ? 'chat' : 'runtime'}`}>
-                      {m.role === 'user' ? '💬 User' : '🤖 Agent'}
-                    </span>
-                    <span>{new Date(m.ts).toLocaleTimeString()}</span>
-                  </div>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
-                </div>
-              ))}
-              {!chatMessages.length ? <div className="gh-muted">No chat messages yet.</div> : null}
-            </div>
-
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const text = chatInput.trim();
-                if (!text || sendingChat) return;
-                setSendingChat(true);
-                try {
-                  await apiPost(`/api/sessions2/${session.id}/chat`, { message: text });
-                  setChatInput('');
-                } finally {
-                  setSendingChat(false);
-                }
-              }}
-              style={{ display: 'flex', gap: 8 }}
-            >
+          <div className="gh-card-header gh-console-header">
+            <span>Console Monitor</span>
+            <label className="gh-console-toggle">
               <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Send a message to this session"
-                style={{ flex: 1 }}
+                type="checkbox"
+                checked={includeHeartbeatNoise}
+                onChange={(e) => setIncludeHeartbeatNoise(e.target.checked)}
               />
-              <button type="submit" className="gh-btn-primary" disabled={sendingChat || !chatInput.trim()}>
-                Send
-              </button>
-            </form>
+              Include heartbeat noise
+            </label>
           </div>
-        </div>
-
-        <div className="gh-card">
-          <div className="gh-card-header">Mission timeline</div>
-          <div className="gh-card-body gh-timeline-wrap" style={{ maxHeight: 420, overflow: 'auto', display: 'grid', gap: 8 }}>
-            {activityEvents.map((e, idx) => {
-              const visual = visualForEvent(e.kind);
-              return (
-                <div key={`${e.ts}-${idx}`} className={`gh-activity-row gh-timeline-row is-${visual.tone}`} style={{ animationDelay: `${Math.min(idx, 18) * 24}ms` }}>
-                  <div className="gh-timeline-dot" aria-hidden="true" />
-                  <div className="gh-timeline-content">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span className={`gh-event-chip is-${visual.tone}`}>
-                          {visual.icon} {visual.label}
-                        </span>
-                        <b>{summarizeActivity(e)}</b>
-                      </div>
-                      <span className="gh-muted" style={{ fontSize: 12 }}>{new Date(e.ts).toLocaleString()}</span>
+          <div className="gh-card-body gh-console-body">
+            {consoleRows.map((row, idx) => {
+              if (row.kind === 'heartbeat') {
+                return (
+                  <div key={`hb-${row.firstTs}-${idx}`} className="gh-console-row is-heartbeat">
+                    <div className="gh-console-leading">~</div>
+                    <div>
+                      Heartbeat x{row.count} collapsed
+                      <span className="gh-muted"> · {new Date(row.firstTs).toLocaleTimeString()} → {new Date(row.lastTs).toLocaleTimeString()}</span>
                     </div>
-                    <div className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>{e.kind}</div>
-                    {e.message ? <pre className="gh-activity-message">{e.message}</pre> : null}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={`${row.event.ts}-${idx}`} className={`gh-console-row is-${row.tone}`}>
+                  <div className="gh-console-leading">{toneIcon(row.tone)}</div>
+                  <div className="gh-console-main">
+                    <div className="gh-console-topline">
+                      <span>{row.summary}</span>
+                      <span className="gh-muted">{new Date(row.event.ts).toLocaleString()}</span>
+                    </div>
+                    <div className="gh-muted gh-code" style={{ fontSize: 11 }}>{row.event.kind}</div>
+                    {row.event.message ? <pre className="gh-console-message">{row.event.message}</pre> : null}
                   </div>
                 </div>
               );
             })}
-            {!activityEvents.length ? <div className="gh-muted">No events yet.</div> : null}
+            {!consoleRows.length ? <div className="gh-muted">No events yet.</div> : null}
+          </div>
+        </div>
+
+        <div className="gh-grid" style={{ gap: 12, alignContent: 'start' }}>
+          <div className="gh-card">
+            <div className="gh-card-header">Agent Health</div>
+            <div className="gh-card-body gh-health-grid">
+              <div>
+                <div className="gh-muted">Errors in last 15m</div>
+                <div className="gh-code" style={{ fontSize: 18 }}>{errorsLast15m}</div>
+              </div>
+              <div>
+                <div className="gh-muted">Commands / min (rolling)</div>
+                <div className="gh-code" style={{ fontSize: 18 }}>{commandsPerMin.toFixed(2)}</div>
+              </div>
+              <div>
+                <div className="gh-muted">Stuck detector</div>
+                <div className={`gh-health-badge ${stuck ? 'is-bad' : 'is-good'}`}>
+                  {stuck ? 'Potentially stuck (>3m)' : 'Healthy'}
+                </div>
+              </div>
+
+              <div className="gh-health-actions">
+                <button
+                  className="gh-btn-primary"
+                  disabled={session.status !== 'running' || !session.pid}
+                  onClick={async () => {
+                    const ok = confirm(`Restart session by terminating pid?\n\n${session.name} (pid=${session.pid ?? '—'})`);
+                    if (!ok) return;
+                    const res: any = await apiPost(`/api/sessions2/${session.id}/terminate`, {});
+                    if (!res.ok) alert(res.message ?? res.error ?? 'restart/terminate failed');
+                    window.location.reload();
+                  }}
+                >
+                  Restart
+                </button>
+
+                <button
+                  disabled={session.status !== 'running' || !session.pid}
+                  onClick={async () => {
+                    const ok = confirm(`Terminate session?\n\n${session.name} (pid=${session.pid ?? '—'})`);
+                    if (!ok) return;
+                    const res: any = await apiPost(`/api/sessions2/${session.id}/terminate`, {});
+                    if (!res.ok) alert(res.message ?? res.error ?? 'terminate failed');
+                    window.location.reload();
+                  }}
+                >
+                  Terminate
+                </button>
+
+                <Link to={diffLink} className="gh-pill">
+                  Open worktree diff
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="gh-card">
+            <div className="gh-card-header">Session</div>
+            <div className="gh-card-body">
+              <div><b>Name:</b> {session.name}</div>
+              <div><b>Provider:</b> {session.provider}</div>
+              <div><b>Status:</b> {session.status}</div>
+              <div className="gh-code gh-muted" style={{ marginTop: 8 }}>{session.worktreePath}</div>
+            </div>
           </div>
         </div>
       </div>
