@@ -149,11 +149,21 @@ function deriveState(input: {
   if (session.status !== 'running') return 'waiting';
 
   const heartbeatAge = lastHeartbeatTs ? now - lastHeartbeatTs : Infinity;
-  const meaningfulAge = lastMeaningfulTs ? now - lastMeaningfulTs : Infinity;
+
+  // If runtime says running and heartbeat is fresh, default to running
+  // even when no meaningful event has appeared yet.
+  if (!lastMeaningfulTs) {
+    if (hasPendingApproval) return 'blocked';
+    if (heartbeatAge > 2 * 60_000) return 'stale';
+    return 'running';
+  }
+
+  const meaningfulAge = now - lastMeaningfulTs;
 
   if (heartbeatAge > 2 * 60_000) return 'stale';
-  if (hasPendingApproval || meaningfulAge > 3 * 60_000) return 'blocked';
-  if (meaningfulAge > 45_000) return 'waiting';
+  if (hasPendingApproval) return 'blocked';
+  if (meaningfulAge > 8 * 60_000) return 'blocked';
+  if (meaningfulAge > 2 * 60_000) return 'waiting';
   return 'running';
 }
 
