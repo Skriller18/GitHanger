@@ -51,6 +51,19 @@ function isHeartbeatEvent(e: Event): boolean {
   return k.includes('heartbeat') || m.includes('heartbeat_ok') || m === 'heartbeat_ok' || m.includes('heartbeat');
 }
 
+function isInfraNoiseEvent(e: Event): boolean {
+  const k = lower(e.kind);
+  const m = lower(e.message);
+  return (
+    k.includes('stream_ready') ||
+    k.includes('connected') ||
+    k.includes('ping') ||
+    m.includes('node-pty unavailable') ||
+    m.includes('fallback:inherit') ||
+    m.includes('post_spawn failed')
+  );
+}
+
 function isErrorEvent(e: Event): boolean {
   const k = lower(e.kind);
   const m = lower(e.message);
@@ -109,8 +122,7 @@ function eventSummary(e: Event): string {
 
 function isMeaningfulEvent(e: Event): boolean {
   if (isHeartbeatEvent(e)) return false;
-  const k = lower(e.kind);
-  if (k.includes('stream_ready') || k.includes('connected') || k.includes('ping')) return false;
+  if (isInfraNoiseEvent(e)) return false;
   return true;
 }
 
@@ -260,37 +272,10 @@ export function SessionDetailPage() {
       return sortedEvents.map((event) => ({ kind: 'event', event, tone: eventTone(event), summary: eventSummary(event) }));
     }
 
-    const rows: ConsoleRow[] = [];
-    let heartbeatCount = 0;
-    let heartbeatFirst = 0;
-    let heartbeatLast = 0;
-
-    const flushHeartbeat = () => {
-      if (!heartbeatCount) return;
-      rows.push({
-        kind: 'heartbeat',
-        count: heartbeatCount,
-        firstTs: heartbeatFirst,
-        lastTs: heartbeatLast,
-      });
-      heartbeatCount = 0;
-      heartbeatFirst = 0;
-      heartbeatLast = 0;
-    };
-
-    for (const event of sortedEvents) {
-      if (isHeartbeatEvent(event)) {
-        heartbeatCount += 1;
-        if (!heartbeatFirst) heartbeatFirst = event.ts;
-        heartbeatLast = event.ts;
-        continue;
-      }
-      flushHeartbeat();
-      rows.push({ kind: 'event', event, tone: eventTone(event), summary: eventSummary(event) });
-    }
-
-    flushHeartbeat();
-    return rows;
+    // Signal-only mode: hide heartbeat and infra noise entirely.
+    return sortedEvents
+      .filter((event) => !isHeartbeatEvent(event) && !isInfraNoiseEvent(event))
+      .map((event) => ({ kind: 'event', event, tone: eventTone(event), summary: eventSummary(event) }));
   }, [includeHeartbeatNoise, sortedEvents]);
 
   const errorsLast15m = React.useMemo(() => {
@@ -359,7 +344,7 @@ export function SessionDetailPage() {
           </div>
           <div className="gh-live-rail-item gh-live-rail-item-wide">
             <div className="gh-muted">Last meaningful action</div>
-            <div className="gh-code">{lastMeaningfulEvent ? eventSummary(lastMeaningfulEvent) : 'No meaningful activity yet'}</div>
+            <div className="gh-code">{lastMeaningfulEvent ? eventSummary(lastMeaningfulEvent) : 'Waiting for first real agent action…'}</div>
           </div>
         </div>
       </div>
@@ -386,7 +371,7 @@ export function SessionDetailPage() {
                 checked={includeHeartbeatNoise}
                 onChange={(e) => setIncludeHeartbeatNoise(e.target.checked)}
               />
-              Include heartbeat noise
+Include heartbeat + infra noise
             </label>
           </div>
           <div className="gh-card-body gh-console-body">
