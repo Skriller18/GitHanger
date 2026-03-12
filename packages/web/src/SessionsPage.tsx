@@ -17,6 +17,21 @@ type Session = {
   lastEventTs?: number | null;
 };
 
+function personaFor(session: Session) {
+  const byProvider = {
+    codex: { name: 'Codi', role: 'Fixer', emoji: '🛠️' },
+    claude: { name: 'Clio', role: 'Strategist', emoji: '🧠' },
+  } as const;
+
+  return byProvider[session.provider] ?? { name: 'Nova', role: 'Scout', emoji: '✨' };
+}
+
+function statusMood(status: Session['status']) {
+  if (status === 'running') return 'thinking';
+  if (status === 'crashed') return 'blocked';
+  return 'idle';
+}
+
 export function SessionsPage() {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
@@ -48,33 +63,42 @@ export function SessionsPage() {
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
 
       <div style={{ display: 'grid', gap: 8 }}>
-        {sessions.map((s) => (
-          <Link
-            key={s.id}
-            to={`/session/${s.id}`}
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: 12,
-              textDecoration: 'none',
-              color: 'var(--text)',
-              background: 'var(--panel-soft)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontWeight: 700 }}>
-                {s.name} <span className="gh-muted" style={{ fontWeight: 400 }}>({s.provider})</span>
+        {sessions.map((s) => {
+          const persona = personaFor(s);
+          const mood = statusMood(s.status);
+
+          return (
+            <Link
+              key={s.id}
+              to={`/session/${s.id}`}
+              className="gh-agent-card"
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div className={`gh-agent-avatar is-${mood}`}>
+                    <span>{persona.emoji}</span>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800 }}>
+                      {s.name} <span className="gh-muted" style={{ fontWeight: 500 }}>({s.provider})</span>
+                    </div>
+                    <div className="gh-muted" style={{ fontSize: 12 }}>
+                      {persona.name} · {persona.role}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`gh-status-badge is-${s.status}`}>
+                  {s.status}
+                </div>
               </div>
-              <div style={{ color: s.status === 'running' ? 'var(--accent2)' : s.status === 'crashed' ? 'var(--danger)' : 'var(--muted)' }}>
-                {s.status}
+              <div className="gh-muted" style={{ marginTop: 8 }}>{s.branch}</div>
+              <div className="gh-muted" style={{ marginTop: 6, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                {s.worktreePath}
               </div>
-            </div>
-            <div className="gh-muted" style={{ marginTop: 6 }}>{s.branch}</div>
-            <div className="gh-muted" style={{ marginTop: 6, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-              {s.worktreePath}
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
         {!sessions.length ? <div style={{ color: '#666' }}>No sessions yet. Use <code>githanger run</code>.</div> : null}
       </div>
     </div>
