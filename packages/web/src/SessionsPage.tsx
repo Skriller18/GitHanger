@@ -19,32 +19,33 @@ type Session = {
 
 type Persona = {
   name: string;
-  role: string;
   emoji: string;
   personality: string;
 };
 
-function personaFor(session: Session): Persona {
-  const byProvider = {
-    codex: {
-      name: 'Codi',
-      role: 'Fixer',
-      emoji: '🛠️',
-      personality: 'Fast execution, patch-and-verify mindset.',
-    },
-    claude: {
-      name: 'Clio',
-      role: 'Strategist',
-      emoji: '🧠',
-      personality: 'Calm planner, keeps context and intent aligned.',
-    },
-  } as const;
+function hashSeed(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
 
-  return byProvider[session.provider] ?? {
-    name: 'Nova',
-    role: 'Scout',
-    emoji: '✨',
-    personality: 'Lightweight explorer for new terrain.',
+function personaFor(session: Session): Persona {
+  const first = ['Nova', 'Zara', 'Kiro', 'Milo', 'Echo', 'Vega', 'Nyx', 'Rin', 'Orin', 'Kael'];
+  const second = ['Flux', 'Byte', 'Spark', 'Orbit', 'Pulse', 'Forge', 'Drift', 'Wisp', 'Core', 'Glint'];
+  const emojis = ['🤖', '🧠', '🛠️', '⚡', '🛰️', '🧪', '🎯', '🔥', '🦾', '✨'];
+  const vibes = [
+    'Fast executor, keeps momentum high.',
+    'Calm operator with clean handoffs.',
+    'Sharp debugger with steady pacing.',
+    'Explores options before locking direction.',
+    'High-focus builder for active missions.',
+  ];
+
+  const seed = hashSeed(session.id);
+  return {
+    name: `${first[seed % first.length]} ${second[(seed >> 2) % second.length]}`,
+    emoji: emojis[(seed >> 4) % emojis.length],
+    personality: vibes[(seed >> 6) % vibes.length],
   };
 }
 
@@ -89,10 +90,27 @@ export function SessionsPage() {
     return sessions.slice(0, 3);
   }, [sessions]);
 
+  const activeEmojiStrip = React.useMemo(() => {
+    return sessions
+      .filter((s) => s.status === 'running')
+      .map((s) => ({ id: s.id, emoji: personaFor(s).emoji }));
+  }, [sessions]);
+
   return (
     <div>
       <h3 style={{ margin: '8px 0 12px' }}>Sessions</h3>
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
+
+      {activeEmojiStrip.length ? (
+        <div className="gh-active-emoji-strip" style={{ marginBottom: 10 }}>
+          <div className="gh-muted" style={{ fontSize: 12 }}>Active emojis</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+            {activeEmojiStrip.map((x) => (
+              <span key={x.id} className="gh-active-emoji-pill">{x.emoji}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {stageAgents.length ? (
         <div className="gh-agent-stage" style={{ marginBottom: 14 }}>
@@ -114,7 +132,7 @@ export function SessionsPage() {
                     </div>
                     <div>
                       <div style={{ fontWeight: 800 }}>{persona.name}</div>
-                      <div className="gh-muted" style={{ fontSize: 12 }}>{persona.role}</div>
+                      <div className="gh-muted" style={{ fontSize: 12 }}>Role: {s.name}</div>
                     </div>
                   </div>
                   <div className="gh-stage-intent">{intentLineFor(s)}</div>
@@ -147,7 +165,7 @@ export function SessionsPage() {
                       {s.name} <span className="gh-muted" style={{ fontWeight: 500 }}>({s.provider})</span>
                     </div>
                     <div className="gh-muted" style={{ fontSize: 12 }}>
-                      {persona.name} · {persona.role}
+                      {persona.name} · role: {s.name}
                     </div>
                   </div>
                 </div>

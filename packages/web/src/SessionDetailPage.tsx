@@ -66,27 +66,29 @@ function statusMood(status: Session['status']) {
   return 'idle';
 }
 
-function personaFor(session: Session) {
-  const byProvider = {
-    codex: {
-      name: 'Codi',
-      role: 'Fixer',
-      emoji: '🛠️',
-      personality: 'Fast, tactical execution with frequent checkpoints.',
-    },
-    claude: {
-      name: 'Clio',
-      role: 'Strategist',
-      emoji: '🧠',
-      personality: 'Reasoned plans and consistent context handling.',
-    },
-  } as const;
+function hashSeed(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (h * 31 + input.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
 
-  return byProvider[session.provider] ?? {
-    name: 'Nova',
-    role: 'Scout',
-    emoji: '✨',
-    personality: 'Flexible operator for unknown mission shapes.',
+function personaFor(session: Session) {
+  const first = ['Nova', 'Zara', 'Kiro', 'Milo', 'Echo', 'Vega', 'Nyx', 'Rin', 'Orin', 'Kael'];
+  const second = ['Flux', 'Byte', 'Spark', 'Orbit', 'Pulse', 'Forge', 'Drift', 'Wisp', 'Core', 'Glint'];
+  const emojis = ['🤖', '🧠', '🛠️', '⚡', '🛰️', '🧪', '🎯', '🔥', '🦾', '✨'];
+  const vibes = [
+    'Fast executor with frequent checkpoints.',
+    'Calm operator with clean context handoffs.',
+    'Focused debugger for tricky flows.',
+    'Explores before committing to a direction.',
+    'High-energy builder for live missions.',
+  ];
+
+  const seed = hashSeed(session.id);
+  return {
+    name: `${first[seed % first.length]} ${second[(seed >> 2) % second.length]}`,
+    emoji: emojis[(seed >> 4) % emojis.length],
+    personality: vibes[(seed >> 6) % vibes.length],
   };
 }
 
@@ -202,7 +204,7 @@ export function SessionDetailPage() {
           <div>
             <div className="gh-stage-hero-title">{session.name}</div>
             <div className="gh-stage-hero-subtitle">
-              {persona.name} · {persona.role} · {session.provider}
+              {persona.name} · role: {session.name} · {session.provider}
             </div>
             <div className="gh-stage-intent">{friendlyIntent(session)}</div>
           </div>
