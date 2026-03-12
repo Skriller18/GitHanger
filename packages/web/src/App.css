@@ -592,6 +592,31 @@
   gap: 8px;
 }
 
+.gh-session-basic-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+}
+
+.gh-approval-card.is-pending {
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2), 0 8px 26px rgba(120, 53, 15, 0.25);
+}
+
+.gh-approval-title {
+  font-size: 18px;
+  font-weight: 900;
+  color: #fde68a;
+}
+
+.gh-edit-paths {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .gh-milestones {
   display: flex;
   gap: 8px;
