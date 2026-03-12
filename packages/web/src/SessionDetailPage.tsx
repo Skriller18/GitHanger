@@ -31,6 +31,12 @@ type ApprovalRequest = {
   meta?: Record<string, unknown>;
 };
 
+type EventVisual = {
+  icon: string;
+  label: string;
+  tone: 'chat' | 'system' | 'approval' | 'runtime' | 'error';
+};
+
 function parseJson<T>(value: string | null | undefined): T | null {
   if (!value) return null;
   try {
@@ -52,6 +58,61 @@ function toChatMessage(e: Event): ChatMessage | null {
     role,
     text,
   };
+}
+
+function statusMood(status: Session['status']) {
+  if (status === 'running') return 'thinking';
+  if (status === 'crashed') return 'blocked';
+  return 'idle';
+}
+
+function personaFor(session: Session) {
+  const byProvider = {
+    codex: {
+      name: 'Codi',
+      role: 'Fixer',
+      emoji: '🛠️',
+      personality: 'Fast, tactical execution with frequent checkpoints.',
+    },
+    claude: {
+      name: 'Clio',
+      role: 'Strategist',
+      emoji: '🧠',
+      personality: 'Reasoned plans and consistent context handling.',
+    },
+  } as const;
+
+  return byProvider[session.provider] ?? {
+    name: 'Nova',
+    role: 'Scout',
+    emoji: '✨',
+    personality: 'Flexible operator for unknown mission shapes.',
+  };
+}
+
+function visualForEvent(kind: string): EventVisual {
+  if (kind === 'chat_user') return { icon: '💬', label: 'User chat', tone: 'chat' };
+  if (kind === 'chat_agent') return { icon: '🤖', label: 'Agent reply', tone: 'chat' };
+  if (kind === 'approval_required') return { icon: '🛂', label: 'Approval required', tone: 'approval' };
+  if (kind.includes('error') || kind === 'crashed') return { icon: '⛔', label: 'Error', tone: 'error' };
+  if (kind.includes('start') || kind.includes('stop') || kind.includes('terminate')) {
+    return { icon: '⚙️', label: 'Runtime', tone: 'runtime' };
+  }
+  return { icon: '📡', label: 'System', tone: 'system' };
+}
+
+function summarizeActivity(e: Event): string {
+  if (e.kind === 'chat_user') return 'Operator sent a mission prompt.';
+  if (e.kind === 'chat_agent') return 'Agent posted a live response.';
+  if (e.kind === 'approval_required') return 'Risky action paused, waiting for approval.';
+  if (e.kind.includes('error') || e.kind === 'crashed') return 'An execution error was reported.';
+  return e.kind.replaceAll('_', ' ');
+}
+
+function friendlyIntent(session: Session): string {
+  if (session.status === 'running') return `Running on ${session.branch} and streaming mission telemetry.`;
+  if (session.status === 'crashed') return 'Execution interrupted. Needs human intervention to continue.';
+  return 'Standing by for the next operator instruction.';
 }
 
 export function SessionDetailPage() {
@@ -128,11 +189,25 @@ export function SessionDetailPage() {
   if (err) return <div style={{ color: 'var(--danger)' }}>{err}</div>;
   if (!session) return <div>Loading…</div>;
 
+  const persona = personaFor(session);
+  const mood = statusMood(session.status);
+
   return (
     <div className="gh-session-detail">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-        <h3 style={{ margin: 0 }}>{session.name}</h3>
-        <div className="gh-muted" style={{ fontWeight: 700 }}>{session.status}</div>
+      <div className="gh-stage-hero" style={{ marginBottom: 12 }}>
+        <div className="gh-stage-hero-main">
+          <div className={`gh-agent-avatar gh-stage-hero-avatar is-${mood}`}>
+            <span>{persona.emoji}</span>
+          </div>
+          <div>
+            <div className="gh-stage-hero-title">{session.name}</div>
+            <div className="gh-stage-hero-subtitle">
+              {persona.name} · {persona.role} · {session.provider}
+            </div>
+            <div className="gh-stage-intent">{friendlyIntent(session)}</div>
+          </div>
+        </div>
+        <div className={`gh-status-badge is-${session.status}`}>{session.status}</div>
       </div>
 
       <div className="gh-card" style={{ marginBottom: 16 }}>
@@ -142,6 +217,7 @@ export function SessionDetailPage() {
               <div><b>Provider:</b> {session.provider}</div>
               <div><b>Branch:</b> {session.branch}</div>
               <div className="gh-code gh-muted" style={{ marginTop: 8 }}>{session.worktreePath}</div>
+              <div className="gh-muted" style={{ marginTop: 8, fontSize: 12 }}>{persona.personality}</div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -199,7 +275,7 @@ export function SessionDetailPage() {
         </div>
       </div>
 
-      <div className="gh-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="gh-grid gh-session-detail-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="gh-card">
           <div className="gh-card-header">Chat</div>
           <div className="gh-card-body" style={{ display: 'grid', gap: 10 }}>
@@ -210,7 +286,10 @@ export function SessionDetailPage() {
                   className={`gh-chat-bubble ${m.role === 'user' ? 'is-user' : 'is-agent'}`}
                 >
                   <div className="gh-chat-meta">
-                    {m.role === 'user' ? 'You' : 'Agent'} · {new Date(m.ts).toLocaleTimeString()}
+                    <span className={`gh-event-chip is-${m.role === 'user' ? 'chat' : 'runtime'}`}>
+                      {m.role === 'user' ? '💬 User' : '🤖 Agent'}
+                    </span>
+                    <span>{new Date(m.ts).toLocaleTimeString()}</span>
                   </div>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
                 </div>
@@ -247,17 +326,29 @@ export function SessionDetailPage() {
         </div>
 
         <div className="gh-card">
-          <div className="gh-card-header">Live activity stream</div>
-          <div className="gh-card-body" style={{ maxHeight: 420, overflow: 'auto', display: 'grid', gap: 8 }}>
-            {activityEvents.map((e, idx) => (
-              <div key={`${e.ts}-${idx}`} className="gh-activity-row">
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <b>{e.kind}</b>
-                  <span className="gh-muted" style={{ fontSize: 12 }}>{new Date(e.ts).toLocaleString()}</span>
+          <div className="gh-card-header">Mission timeline</div>
+          <div className="gh-card-body gh-timeline-wrap" style={{ maxHeight: 420, overflow: 'auto', display: 'grid', gap: 8 }}>
+            {activityEvents.map((e, idx) => {
+              const visual = visualForEvent(e.kind);
+              return (
+                <div key={`${e.ts}-${idx}`} className={`gh-activity-row gh-timeline-row is-${visual.tone}`} style={{ animationDelay: `${Math.min(idx, 18) * 24}ms` }}>
+                  <div className="gh-timeline-dot" aria-hidden="true" />
+                  <div className="gh-timeline-content">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span className={`gh-event-chip is-${visual.tone}`}>
+                          {visual.icon} {visual.label}
+                        </span>
+                        <b>{summarizeActivity(e)}</b>
+                      </div>
+                      <span className="gh-muted" style={{ fontSize: 12 }}>{new Date(e.ts).toLocaleString()}</span>
+                    </div>
+                    <div className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>{e.kind}</div>
+                    {e.message ? <pre className="gh-activity-message">{e.message}</pre> : null}
+                  </div>
                 </div>
-                {e.message ? <pre className="gh-activity-message">{e.message}</pre> : null}
-              </div>
-            ))}
+              );
+            })}
             {!activityEvents.length ? <div className="gh-muted">No events yet.</div> : null}
           </div>
         </div>

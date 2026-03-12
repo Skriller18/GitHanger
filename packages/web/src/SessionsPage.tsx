@@ -17,19 +17,47 @@ type Session = {
   lastEventTs?: number | null;
 };
 
-function personaFor(session: Session) {
+type Persona = {
+  name: string;
+  role: string;
+  emoji: string;
+  personality: string;
+};
+
+function personaFor(session: Session): Persona {
   const byProvider = {
-    codex: { name: 'Codi', role: 'Fixer', emoji: '🛠️' },
-    claude: { name: 'Clio', role: 'Strategist', emoji: '🧠' },
+    codex: {
+      name: 'Codi',
+      role: 'Fixer',
+      emoji: '🛠️',
+      personality: 'Fast execution, patch-and-verify mindset.',
+    },
+    claude: {
+      name: 'Clio',
+      role: 'Strategist',
+      emoji: '🧠',
+      personality: 'Calm planner, keeps context and intent aligned.',
+    },
   } as const;
 
-  return byProvider[session.provider] ?? { name: 'Nova', role: 'Scout', emoji: '✨' };
+  return byProvider[session.provider] ?? {
+    name: 'Nova',
+    role: 'Scout',
+    emoji: '✨',
+    personality: 'Lightweight explorer for new terrain.',
+  };
 }
 
 function statusMood(status: Session['status']) {
   if (status === 'running') return 'thinking';
   if (status === 'crashed') return 'blocked';
   return 'idle';
+}
+
+function intentLineFor(session: Session) {
+  if (session.status === 'running') return `Active on ${session.branch} · tracking live mission updates`;
+  if (session.status === 'crashed') return 'Needs intervention · waiting for operator recovery';
+  return 'Awaiting next command payload';
 }
 
 export function SessionsPage() {
@@ -57,10 +85,46 @@ export function SessionsPage() {
     refresh();
   }, 3000);
 
+  const stageAgents = React.useMemo(() => {
+    return sessions.slice(0, 3);
+  }, [sessions]);
+
   return (
     <div>
       <h3 style={{ margin: '8px 0 12px' }}>Sessions</h3>
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
+
+      {stageAgents.length ? (
+        <div className="gh-agent-stage" style={{ marginBottom: 14 }}>
+          <div className="gh-agent-stage-head">
+            <div className="gh-agent-stage-title">Agent Stage</div>
+            <div className="gh-muted" style={{ fontSize: 12 }}>
+              Live personas currently in play
+            </div>
+          </div>
+          <div className="gh-agent-stage-grid">
+            {stageAgents.map((s) => {
+              const persona = personaFor(s);
+              const mood = statusMood(s.status);
+              return (
+                <Link key={`stage-${s.id}`} to={`/session/${s.id}`} className={`gh-stage-card is-${mood}`}>
+                  <div className="gh-stage-card-top">
+                    <div className={`gh-agent-avatar is-${mood}`}>
+                      <span>{persona.emoji}</span>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{persona.name}</div>
+                      <div className="gh-muted" style={{ fontSize: 12 }}>{persona.role}</div>
+                    </div>
+                  </div>
+                  <div className="gh-stage-intent">{intentLineFor(s)}</div>
+                  <div className="gh-stage-personality">{persona.personality}</div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div style={{ display: 'grid', gap: 8 }}>
         {sessions.map((s) => {
