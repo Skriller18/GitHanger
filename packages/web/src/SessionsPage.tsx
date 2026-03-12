@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { apiGet } from './api';
+import { apiGet, apiPost } from './api';
 import { useInterval } from './useInterval';
 
 type Session = {
@@ -55,15 +55,11 @@ function statusMood(status: Session['status']) {
   return 'idle';
 }
 
-function intentLineFor(session: Session) {
-  if (session.status === 'running') return `Active on ${session.branch} · tracking live mission updates`;
-  if (session.status === 'crashed') return 'Needs intervention · waiting for operator recovery';
-  return 'Awaiting next command payload';
-}
-
 export function SessionsPage() {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = React.useState(false);
 
   async function refresh() {
     setErr(null);
@@ -86,77 +82,74 @@ export function SessionsPage() {
     refresh();
   }, 3000);
 
-  const stageAgents = React.useMemo(() => {
-    return sessions.slice(0, 3);
+  React.useEffect(() => {
+    const valid = new Set(sessions.map((s) => s.id));
+    setSelectedIds((prev) => new Set([...prev].filter((id) => valid.has(id))));
   }, [sessions]);
 
-  const activeEmojiStrip = React.useMemo(() => {
-    return sessions
-      .filter((s) => s.status === 'running')
-      .map((s) => ({ id: s.id, emoji: personaFor(s).emoji }));
-  }, [sessions]);
+  function toggleSelection(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function deleteSelected() {
+    if (!selectedIds.size || deleting) return;
+    const ok = confirm(`Delete ${selectedIds.size} selected agent session(s)?`);
+    if (!ok) return;
+
+    setDeleting(true);
+    try {
+      await Promise.all(
+        [...selectedIds].map((sid) =>
+          apiPost(`/api/sessions2/${sid}/delete`, { removeWorktree: true }).catch(() => null),
+        ),
+      );
+      setSelectedIds(new Set());
+      await refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <div>
       <h3 style={{ margin: '8px 0 12px' }}>Sessions</h3>
       {err ? <div style={{ color: 'crimson', marginBottom: 12 }}>{err}</div> : null}
 
-      {activeEmojiStrip.length ? (
-        <div className="gh-active-emoji-strip" style={{ marginBottom: 10 }}>
-          <div className="gh-muted" style={{ fontSize: 12 }}>Active emojis</div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-            {activeEmojiStrip.map((x) => (
-              <span key={x.id} className="gh-active-emoji-pill">{x.emoji}</span>
-            ))}
-          </div>
+      <div className="gh-list-toolbar" style={{ marginBottom: 10 }}>
+        <div className="gh-muted" style={{ fontSize: 12 }}>
+          {selectedIds.size ? `${selectedIds.size} selected` : 'Select one or more agents to delete'}
         </div>
-      ) : null}
-
-      {stageAgents.length ? (
-        <div className="gh-agent-stage" style={{ marginBottom: 14 }}>
-          <div className="gh-agent-stage-head">
-            <div className="gh-agent-stage-title">Agent Stage</div>
-            <div className="gh-muted" style={{ fontSize: 12 }}>
-              Live personas currently in play
-            </div>
-          </div>
-          <div className="gh-agent-stage-grid">
-            {stageAgents.map((s) => {
-              const persona = personaFor(s);
-              const mood = statusMood(s.status);
-              return (
-                <Link key={`stage-${s.id}`} to={`/session/${s.id}`} className={`gh-stage-card is-${mood}`}>
-                  <div className="gh-stage-card-top">
-                    <div className={`gh-agent-avatar is-${mood}`}>
-                      <span>{persona.emoji}</span>
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 800 }}>{persona.name}</div>
-                      <div className="gh-muted" style={{ fontSize: 12 }}>Role: {s.name}</div>
-                    </div>
-                  </div>
-                  <div className="gh-stage-intent">{intentLineFor(s)}</div>
-                  <div className="gh-stage-personality">{persona.personality}</div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+        <button
+          onClick={deleteSelected}
+          disabled={!selectedIds.size || deleting}
+          style={{ background: 'rgba(239, 68, 68, 0.14)', borderColor: 'rgba(239, 68, 68, 0.35)' }}
+        >
+          {deleting ? 'Deleting…' : `Delete selected${selectedIds.size ? ` (${selectedIds.size})` : ''}`}
+        </button>
+      </div>
 
       <div style={{ display: 'grid', gap: 8 }}>
         {sessions.map((s) => {
           const persona = personaFor(s);
           const mood = statusMood(s.status);
+          const checked = selectedIds.has(s.id);
 
           return (
-            <Link
-              key={s.id}
-              to={`/session/${s.id}`}
-              className="gh-agent-card"
-            >
+            <div key={s.id} className="gh-agent-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleSelection(s.id, e.target.checked)}
+                    />
+                  </label>
                   <div className={`gh-agent-avatar is-${mood}`}>
                     <span>{persona.emoji}</span>
                   </div>
@@ -165,20 +158,23 @@ export function SessionsPage() {
                       {s.name} <span className="gh-muted" style={{ fontWeight: 500 }}>({s.provider})</span>
                     </div>
                     <div className="gh-muted" style={{ fontSize: 12 }}>
-                      {persona.name} · role: {s.name}
+                      {persona.name}
                     </div>
                   </div>
                 </div>
 
-                <div className={`gh-status-badge is-${s.status}`}>
-                  {s.status}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div className={`gh-status-badge is-${s.status}`}>
+                    {s.status}
+                  </div>
+                  <Link to={`/session/${s.id}`} className="gh-pill">Open</Link>
                 </div>
               </div>
               <div className="gh-muted" style={{ marginTop: 8 }}>{s.branch}</div>
               <div className="gh-muted" style={{ marginTop: 6, fontSize: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
                 {s.worktreePath}
               </div>
-            </Link>
+            </div>
           );
         })}
         {!sessions.length ? <div style={{ color: '#666' }}>No sessions yet. Use <code>githanger run</code>.</div> : null}

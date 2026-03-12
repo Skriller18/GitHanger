@@ -212,20 +212,26 @@
   background: rgba(239, 68, 68, 0.2);
 }
 
+.gh-list-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
 .gh-agent-card {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
-  text-decoration: none;
   color: var(--text);
   background: linear-gradient(145deg, var(--panel-soft), color-mix(in srgb, var(--panel) 75%, #5b7cfa 25%));
   transition: transform 140ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .gh-agent-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--border) 60%, #8b5cf6 40%);
-  box-shadow: 0 8px 22px rgba(91, 124, 250, 0.2);
+  box-shadow: 0 6px 16px rgba(91, 124, 250, 0.16);
 }
 
 .gh-agent-avatar {
