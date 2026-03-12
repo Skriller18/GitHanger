@@ -522,6 +522,32 @@
   background: color-mix(in srgb, var(--panel-soft) 90%, #0f172a 10%);
 }
 
+.gh-tl-row {
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.gh-tl-time {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  border-right: 1px dashed var(--border-strong);
+  padding-right: 10px;
+}
+
+.gh-tl-summary {
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.gh-tl-kind {
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
 .gh-console-row.is-success {
   border-color: rgba(74, 222, 128, 0.45);
 }
@@ -664,6 +690,18 @@
 
   .gh-monitor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .gh-tl-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .gh-tl-time {
+    border-right: 0;
+    border-bottom: 1px dashed var(--border-strong);
+    padding-right: 0;
+    padding-bottom: 6px;
   }
 
   .gh-live-rail-grid {

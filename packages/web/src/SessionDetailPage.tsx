@@ -310,14 +310,16 @@ export function SessionDetailPage() {
         <div className="gh-card-body gh-console-body">
           {timelineEvents.map((event, idx) => {
             const editedPaths = extractEditedPaths(event);
+            const dt = new Date(event.ts);
             return (
-              <div key={`${event.ts}-${idx}`} className="gh-console-row is-system">
+              <div key={`${event.ts}-${idx}`} className="gh-console-row is-system gh-tl-row">
+                <div className="gh-tl-time gh-code">
+                  <div>{dt.toLocaleDateString()}</div>
+                  <div>{dt.toLocaleTimeString()}</div>
+                </div>
                 <div className="gh-console-main">
-                  <div className="gh-console-topline">
-                    <span>{summarizeEvent(event)}</span>
-                    <span className="gh-muted">{new Date(event.ts).toLocaleString()}</span>
-                  </div>
-                  <div className="gh-muted gh-code" style={{ fontSize: 11 }}>{event.kind}</div>
+                  <div className="gh-tl-summary">{summarizeEvent(event)}</div>
+                  <div className="gh-muted gh-code gh-tl-kind">{event.kind}</div>
                   {editedPaths.length ? (
                     <div className="gh-edit-paths">
                       {editedPaths.map((path) => (
