@@ -1,6 +1,10 @@
 # GitHanger
 
-GitHanger is a local git + agent workflow tool. It tracks agent sessions, worktrees, branch state, and diff/commit activity with a CLI plus local dashboard.
+GitHanger is a local git + agent workflow tool built for modern developer workflows with AI coding agents.
+
+As soon as you start working with agents seriously, the workflow gets messy fast: multiple sessions running in parallel, separate branches for different tasks, temporary worktrees, diffs piling up, and constant context switching between what should be committed, discarded, or pushed.
+
+GitHanger gives you a CLI plus a local dashboard for tracking agent sessions, worktrees, branch state, and diff/commit activity so agent-assisted development stays visible and manageable.
 
 ## Current features
 
