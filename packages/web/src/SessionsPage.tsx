@@ -6,7 +6,7 @@ import { useInterval } from './useInterval';
 type Session = {
   id: string;
   name: string;
-  provider: 'claude' | 'codex';
+  provider: 'claude' | 'codex' | 'copilot';
   repoPath: string;
   worktreePath: string;
   branch: string;

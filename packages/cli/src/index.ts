@@ -22,7 +22,7 @@ function createLineBuffer(onLine: (line: string) => void) {
 import { openDb } from './db.js';
 import { ensureWorktree } from './git.js';
 
-const ProviderSchema = z.enum(['claude', 'codex']);
+const ProviderSchema = z.enum(['claude', 'codex', 'copilot']);
 
 const program = new Command();
 
@@ -64,7 +64,7 @@ program
   .option('--repo <path>', 'Path to git repository (default: cwd)')
   .option('--branch <name>', 'Branch name to bind this session to')
   .option('--name <name>', 'Session name')
-  .option('--provider <claude|codex>', 'Agent provider')
+  .option('--provider <claude|codex|copilot>', 'Agent provider')
   .action(async (opts) => {
     const repoPath = path.resolve(opts.repo ?? process.cwd());
     if (!fs.existsSync(path.join(repoPath, '.git'))) {
@@ -79,6 +79,7 @@ program
         choices: [
           { name: 'Claude Code', value: 'claude' },
           { name: 'Codex', value: 'codex' },
+          { name: 'GitHub Copilot', value: 'copilot' },
         ],
         when: () => !opts.provider,
       },
@@ -100,7 +101,11 @@ program
         type: 'input',
         name: 'cmd',
         message: 'Command to run (binary name on PATH):',
-        default: (prev: any) => (prev.provider === 'codex' ? 'codex' : 'claude'),
+        default: (prev: any) => {
+          if (prev.provider === 'codex') return 'codex';
+          if (prev.provider === 'copilot') return 'copilot';
+          return 'claude';
+        },
       },
       {
         type: 'input',
@@ -151,7 +156,7 @@ program
     );
     insertEvent.run(now, sessionId, 'started', `${provider}:${name} on ${branch}`);
 
-    const interactiveAgent = /(^|\/)claude$|(^|\/)codex$/i.test(cmd);
+    const interactiveAgent = /(^|\/)claude$|(^|\/)codex$|(^|\/)copilot$/i.test(cmd);
     const agentEnv = {
       ...process.env,
       GITHANGER_SESSION_ID: sessionId,
