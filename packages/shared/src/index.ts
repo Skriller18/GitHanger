@@ -9,7 +9,7 @@ export function defaultDataDir() {
   return path.join(os.homedir(), '.githanger');
 }
 
-export const ProviderSchema = z.enum(['claude', 'codex', 'copilot']);
+export const ProviderSchema = z.enum(['claude', 'codex', 'copilot', 'opencode']);
 export type Provider = z.infer<typeof ProviderSchema>;
 
 export const AgentSessionSchema = z.object({
