@@ -123,4 +123,4 @@ npm run pack:cli
 npm run publish:cli
 ```
 
-This project is currently at `0.1.0`; use patch bumps for bug fixes, minor for backwards-compatible features, and major for breaking CLI changes.
+This project is currently at `0.1.1`; use patch bumps for bug fixes, minor for backwards-compatible features, and major for breaking CLI changes.
