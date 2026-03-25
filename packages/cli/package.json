@@ -1,6 +1,6 @@
 {
   "name": "githanger",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GitHanger CLI for tracked agent sessions, worktrees, and branch workflows.",
   "type": "module",
   "bin": {
