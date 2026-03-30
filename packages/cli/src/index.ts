@@ -149,17 +149,24 @@ async function detectRepoRoot(startDir: string) {
   }
 }
 
-async function findInstalledWebRoot(cliDir: string) {
-  const candidates = [
+async function findInstalledBundleRoots(cliDir: string) {
+  const webCandidates = [
+    path.resolve(cliDir, '../vendor/web-dist'),
     path.resolve(cliDir, '../../web/dist'),
     path.resolve(cliDir, '../web/dist'),
     path.resolve(cliDir, '../../../web/dist'),
   ];
+  const serverCandidates = [
+    path.resolve(cliDir, '../vendor/server-dist'),
+    path.resolve(cliDir, '../../server/dist'),
+    path.resolve(cliDir, '../server/dist'),
+    path.resolve(cliDir, '../../../server/dist'),
+  ];
 
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, 'index.html'))) return candidate;
-  }
-  return null;
+  const webRoot = webCandidates.find((candidate) => fs.existsSync(path.join(candidate, 'index.html'))) ?? null;
+  const serverRoot = serverCandidates.find((candidate) => fs.existsSync(path.join(candidate, 'index.js'))) ?? null;
+
+  return { webRoot, serverRoot };
 }
 
 program
@@ -481,13 +488,13 @@ program
   .action(async (opts) => {
     const root = await detectRepoRoot(process.cwd());
     const cliDir = path.dirname(new URL(import.meta.url).pathname);
-    const webDist = await findInstalledWebRoot(cliDir);
+    const { webRoot: webDist, serverRoot: bundledServerRoot } = await findInstalledBundleRoots(cliDir);
     const port = Number(opts.port ?? DEFAULT_PORT);
     const host = String(opts.host ?? DEFAULT_HOST);
     const webPort = Number(opts.webPort ?? DEFAULT_WEB_PORT);
 
-    if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid --port: ${opts.port}`);
-    if (Number.isNaN(webPort) || webPort <= 0) throw new Error(`Invalid --web-port: ${opts.webPort}`);
+    if (!Number.isFinite(port) || port <= 0) throw new Error(`Invalid --port: ${opts.port}`);
+    if (!Number.isFinite(webPort) || webPort <= 0) throw new Error(`Invalid --web-port: ${opts.webPort}`);
 
     const existing = await loadStartState();
     if (existing) {
@@ -554,63 +561,30 @@ program
       throw new Error('No source checkout detected and bundled dashboard assets were not found. Reinstall the package or run from the GitHanger repo root.');
     }
 
-    const serverProc = execa('githanger', ['serve', '--port', String(port)], {
+    if (!bundledServerRoot) {
+      throw new Error('Bundled server assets were not found in the installed package. Reinstall the package or rebuild before publishing.');
+    }
+
+    const bundledServerEntry = path.join(bundledServerRoot, 'index.js');
+    const serverProc = execa('node', [bundledServerEntry], {
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, GITHANGER_HOST: host },
+      env: { ...process.env, GITHANGER_HOST: host, GITHANGER_PORT: String(port) },
     });
     serverProc.unref();
     serverProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
     serverProc.stderr?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
 
-    const webProc = execa('node', ['-e', `
-      import http from 'node:http';
-      import fs from 'node:fs';
-      import path from 'node:path';
-      const root = ${JSON.stringify(webDist)};
-      const apiBase = ${JSON.stringify(`http://${host}:${port}`)};
-      const port = ${JSON.stringify(String(webPort))};
-      const types = new Map([
-        ['.html', 'text/html; charset=utf-8'],
-        ['.js', 'application/javascript; charset=utf-8'],
-        ['.css', 'text/css; charset=utf-8'],
-        ['.json', 'application/json; charset=utf-8'],
-        ['.svg', 'image/svg+xml'],
-        ['.png', 'image/png'],
-        ['.ico', 'image/x-icon'],
-      ]);
-      const server = http.createServer((req, res) => {
-        const url = new URL(req.url || '/', 'http://127.0.0.1');
-        let file = path.join(root, decodeURIComponent(url.pathname));
-        if (url.pathname === '/' || !path.extname(file)) file = path.join(root, 'index.html');
-        fs.readFile(file, (err, buf) => {
-          if (err) {
-            fs.readFile(path.join(root, 'index.html'), (err2, html) => {
-              if (err2) {
-                res.statusCode = 500;
-                res.end(String(err2));
-                return;
-              }
-              const text = html.toString().replace('http://127.0.0.1:4545', apiBase);
-              res.setHeader('content-type', 'text/html; charset=utf-8');
-              res.end(text);
-            });
-            return;
-          }
-          if (path.basename(file) === 'index.html') {
-            const text = buf.toString().replace('http://127.0.0.1:4545', apiBase);
-            res.setHeader('content-type', 'text/html; charset=utf-8');
-            res.end(text);
-            return;
-          }
-          res.setHeader('content-type', types.get(path.extname(file)) || 'application/octet-stream');
-          res.end(buf);
-        });
-      });
-      server.listen(Number(port), '127.0.0.1');
-    `], {
+    const webServerEntry = path.resolve(cliDir, '../src/web_server_template.mjs');
+    const webProc = execa('node', [webServerEntry], {
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GITHANGER_WEB_ROOT: webDist,
+        GITHANGER_API_BASE: `http://${host}:${port}`,
+        GITHANGER_WEB_PORT: String(webPort),
+      },
     });
     webProc.unref();
     webProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('web'), { flags: 'a' }));
