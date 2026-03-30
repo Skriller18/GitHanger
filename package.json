@@ -1,6 +1,6 @@
 {
   "name": "githanger",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local agent+git dashboard for tracking branches/worktrees and agent sessions.",
   "license": "MIT",
   "workspaces": [
