@@ -61,21 +61,34 @@ githanger init
 
 # create and run a tracked agent session in its own worktree
 githanger run
+
+# see all tracked agents in the terminal
+githanger status
+
+# inspect one agent, recent events, and current diff
+githanger inspect <session-name-or-id>
 ```
 
 ## Dashboard usage
 
-The dashboard (`githanger start`) is a source-checkout workflow in this repo.
+After global install, GitHanger can start the backend + dashboard directly:
+
+```bash
+npm install -g githanger
+githanger start
+```
+
+Open `http://127.0.0.1:5173`.
+
+Source-checkout workflow still works too:
 
 ```bash
 git clone https://github.com/Skriller18/GitHanger.git
 cd GitHanger
 npm install
 npm run build
-npm run start
+githanger start
 ```
-
-Open `http://localhost:5173`.
 
 ## Monorepo development
 

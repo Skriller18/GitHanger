@@ -3,6 +3,8 @@ import { Command } from 'commander';
 import inquirer from 'inquirer';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import http from 'node:http';
 import crypto from 'node:crypto';
 import { execa } from 'execa';
 import { z } from 'zod';
@@ -20,11 +22,145 @@ function createLineBuffer(onLine: (line: string) => void) {
   };
 }
 import { openDb } from './db.js';
-import { ensureWorktree } from './git.js';
+import { ensureWorktree, git } from './git.js';
 
 const ProviderSchema = z.enum(['claude', 'codex', 'copilot', 'opencode']);
+const DEFAULT_PORT = Number(process.env.GITHANGER_PORT ?? 4545);
+const DEFAULT_HOST = process.env.GITHANGER_HOST ?? '127.0.0.1';
+const DEFAULT_WEB_PORT = Number(process.env.GITHANGER_WEB_PORT ?? 5173);
 
 const program = new Command();
+
+function resolveDataDir() {
+  return path.join(os.homedir(), '.githanger');
+}
+
+function resolvePidFile() {
+  return path.join(resolveDataDir(), 'start-state.json');
+}
+
+function resolveRuntimeLog(name: string) {
+  return path.join(resolveDataDir(), `${name}.log`);
+}
+
+function parsePid(raw: string | undefined | null) {
+  const value = Number(raw ?? '');
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function isPidRunning(pid: number | null) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForHttp(url: string, timeoutMs = 20000) {
+  const started = Date.now();
+  let lastError = 'unknown';
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const ok = await new Promise<boolean>((resolve) => {
+        const req = http.get(url, (res) => {
+          res.resume();
+          resolve((res.statusCode ?? 500) < 500);
+        });
+        req.on('error', (err) => {
+          lastError = err.message;
+          resolve(false);
+        });
+        req.setTimeout(2000, () => {
+          lastError = 'timeout';
+          req.destroy();
+          resolve(false);
+        });
+      });
+      if (ok) return;
+    } catch (err: any) {
+      lastError = err?.message ?? String(err);
+    }
+
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  throw new Error(`Timed out waiting for ${url} (${lastError})`);
+}
+
+async function loadStartState() {
+  const pidFile = resolvePidFile();
+  try {
+    const raw = await fs.promises.readFile(pidFile, 'utf8');
+    const parsed = JSON.parse(raw) as {
+      root?: string;
+      startedAt?: number;
+      serverPid?: number;
+      webPid?: number;
+      port?: number;
+      webPort?: number;
+    };
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function saveStartState(state: {
+  root: string;
+  startedAt: number;
+  serverPid: number | null;
+  webPid: number | null;
+  port: number;
+  webPort: number;
+}) {
+  const pidFile = resolvePidFile();
+  await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
+  await fs.promises.writeFile(pidFile, JSON.stringify(state, null, 2) + '\n', 'utf8');
+}
+
+async function clearStartState() {
+  const pidFile = resolvePidFile();
+  try {
+    await fs.promises.unlink(pidFile);
+  } catch {
+    // ignore
+  }
+}
+
+async function detectRepoRoot(startDir: string) {
+  let dir = path.resolve(startDir);
+  while (true) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const raw = await fs.promises.readFile(pkgPath, 'utf8');
+        const pkg = JSON.parse(raw) as { name?: string; workspaces?: unknown };
+        if (pkg.name === 'githanger' && Array.isArray(pkg.workspaces)) return dir;
+      } catch {
+        // ignore malformed package.json and keep walking up
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+async function findInstalledWebRoot(cliDir: string) {
+  const candidates = [
+    path.resolve(cliDir, '../../web/dist'),
+    path.resolve(cliDir, '../web/dist'),
+    path.resolve(cliDir, '../../../web/dist'),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, 'index.html'))) return candidate;
+  }
+  return null;
+}
 
 program
   .name('githanger')
@@ -338,18 +474,251 @@ program
 
 program
   .command('start')
-  .description('Start API server + web dashboard from a GitHanger source checkout.')
-  .action(async () => {
-    const rootPkg = path.resolve(process.cwd(), 'package.json');
-    if (!fs.existsSync(rootPkg)) {
-      throw new Error(
-        'No package.json in current directory. Run this from the GitHanger repo root.'
-      );
+  .description('Start the API server + dashboard, either from an installed package or a source checkout.')
+  .option('--port <port>', 'API port (default 4545)')
+  .option('--host <host>', 'API host (default 127.0.0.1)')
+  .option('--web-port <port>', 'Dashboard port (default 5173)')
+  .action(async (opts) => {
+    const root = await detectRepoRoot(process.cwd());
+    const cliDir = path.dirname(new URL(import.meta.url).pathname);
+    const webDist = await findInstalledWebRoot(cliDir);
+    const port = Number(opts.port ?? DEFAULT_PORT);
+    const host = String(opts.host ?? DEFAULT_HOST);
+    const webPort = Number(opts.webPort ?? DEFAULT_WEB_PORT);
+
+    if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid --port: ${opts.port}`);
+    if (Number.isNaN(webPort) || webPort <= 0) throw new Error(`Invalid --web-port: ${opts.webPort}`);
+
+    const existing = await loadStartState();
+    if (existing) {
+      const serverAlive = isPidRunning(existing.serverPid ?? null);
+      const webAlive = isPidRunning(existing.webPid ?? null);
+      if (serverAlive && webAlive) {
+        console.log(`GitHanger already running:`);
+        console.log(`- API:  http://${host}:${existing.port ?? port}`);
+        console.log(`- Web:  http://127.0.0.1:${existing.webPort ?? webPort}`);
+        console.log(`- PIDs: server=${existing.serverPid}, web=${existing.webPid}`);
+        return;
+      }
+      await clearStartState();
     }
-    await execa('npm', ['run', 'start'], {
-      stdio: 'inherit',
-      cwd: process.cwd(),
+
+    await fs.promises.mkdir(resolveDataDir(), { recursive: true });
+
+    if (root) {
+      const serverEntry = path.join(root, 'packages/server/dist/index.js');
+      const webEntry = path.join(root, 'packages/web');
+      if (!fs.existsSync(serverEntry)) {
+        throw new Error('Server build not found. Run `npm run build` once in the GitHanger repo before `githanger start`.');
+      }
+
+      const serverProc = execa('node', [serverEntry], {
+        cwd: root,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, GITHANGER_PORT: String(port), GITHANGER_HOST: host },
+      });
+      serverProc.unref();
+      serverProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
+      serverProc.stderr?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
+
+      const webProc = execa('npm', ['run', '-w', '@githanger/web', 'dev', '--', '--host', '127.0.0.1', '--port', String(webPort)], {
+        cwd: root,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, VITE_API_BASE: `http://${host}:${port}` },
+      });
+      webProc.unref();
+      webProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('web'), { flags: 'a' }));
+      webProc.stderr?.pipe(fs.createWriteStream(resolveRuntimeLog('web'), { flags: 'a' }));
+
+      await waitForHttp(`http://${host}:${port}/health`);
+      await waitForHttp(`http://127.0.0.1:${webPort}`);
+      await saveStartState({
+        root,
+        startedAt: Date.now(),
+        serverPid: serverProc.pid ?? null,
+        webPid: webProc.pid ?? null,
+        port,
+        webPort,
+      });
+
+      console.log('GitHanger started from source checkout.');
+      console.log(`- API:  http://${host}:${port}`);
+      console.log(`- Web:  http://127.0.0.1:${webPort}`);
+      console.log(`- Logs: ${resolveRuntimeLog('server')} | ${resolveRuntimeLog('web')}`);
+      return;
+    }
+
+    if (!webDist) {
+      throw new Error('No source checkout detected and bundled dashboard assets were not found. Reinstall the package or run from the GitHanger repo root.');
+    }
+
+    const serverProc = execa('githanger', ['serve', '--port', String(port)], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, GITHANGER_HOST: host },
     });
+    serverProc.unref();
+    serverProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
+    serverProc.stderr?.pipe(fs.createWriteStream(resolveRuntimeLog('server'), { flags: 'a' }));
+
+    const webProc = execa('node', ['-e', `
+      import http from 'node:http';
+      import fs from 'node:fs';
+      import path from 'node:path';
+      const root = ${JSON.stringify(webDist)};
+      const apiBase = ${JSON.stringify(`http://${host}:${port}`)};
+      const port = ${JSON.stringify(String(webPort))};
+      const types = new Map([
+        ['.html', 'text/html; charset=utf-8'],
+        ['.js', 'application/javascript; charset=utf-8'],
+        ['.css', 'text/css; charset=utf-8'],
+        ['.json', 'application/json; charset=utf-8'],
+        ['.svg', 'image/svg+xml'],
+        ['.png', 'image/png'],
+        ['.ico', 'image/x-icon'],
+      ]);
+      const server = http.createServer((req, res) => {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        let file = path.join(root, decodeURIComponent(url.pathname));
+        if (url.pathname === '/' || !path.extname(file)) file = path.join(root, 'index.html');
+        fs.readFile(file, (err, buf) => {
+          if (err) {
+            fs.readFile(path.join(root, 'index.html'), (err2, html) => {
+              if (err2) {
+                res.statusCode = 500;
+                res.end(String(err2));
+                return;
+              }
+              const text = html.toString().replace('http://127.0.0.1:4545', apiBase);
+              res.setHeader('content-type', 'text/html; charset=utf-8');
+              res.end(text);
+            });
+            return;
+          }
+          if (path.basename(file) === 'index.html') {
+            const text = buf.toString().replace('http://127.0.0.1:4545', apiBase);
+            res.setHeader('content-type', 'text/html; charset=utf-8');
+            res.end(text);
+            return;
+          }
+          res.setHeader('content-type', types.get(path.extname(file)) || 'application/octet-stream');
+          res.end(buf);
+        });
+      });
+      server.listen(Number(port), '127.0.0.1');
+    `], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    webProc.unref();
+    webProc.stdout?.pipe(fs.createWriteStream(resolveRuntimeLog('web'), { flags: 'a' }));
+    webProc.stderr?.pipe(fs.createWriteStream(resolveRuntimeLog('web'), { flags: 'a' }));
+
+    await waitForHttp(`http://${host}:${port}/health`);
+    await waitForHttp(`http://127.0.0.1:${webPort}`);
+    await saveStartState({
+      root: webDist,
+      startedAt: Date.now(),
+      serverPid: serverProc.pid ?? null,
+      webPid: webProc.pid ?? null,
+      port,
+      webPort,
+    });
+
+    console.log('GitHanger started from installed package.');
+    console.log(`- API:  http://${host}:${port}`);
+    console.log(`- Web:  http://127.0.0.1:${webPort}`);
+    console.log(`- Logs: ${resolveRuntimeLog('server')} | ${resolveRuntimeLog('web')}`);
+  });
+
+program
+  .command('status')
+  .description('Show tracked agent sessions and their current status.')
+  .action(async () => {
+    const db = openDb(process.env.GITHANGER_DB);
+    const sessions = db
+      .prepare(
+        `SELECT s.*, (
+           SELECT MAX(ts) FROM events e WHERE e.sessionId = s.id
+         ) AS lastEventTs
+         FROM sessions s
+         ORDER BY startedAt DESC`
+      )
+      .all() as Array<any>;
+
+    if (!sessions.length) {
+      console.log('No tracked GitHanger agent sessions yet.');
+      return;
+    }
+
+    for (const session of sessions) {
+      const lastSeen = session.lastEventTs ? new Date(session.lastEventTs).toLocaleString() : 'never';
+      const pidState = session.pid ? (isPidRunning(session.pid) ? 'alive' : 'gone') : 'n/a';
+      console.log(`${session.status.padEnd(8)} ${session.name} (${session.provider})`);
+      console.log(`  branch:   ${session.branch}`);
+      console.log(`  repo:     ${session.repoPath}`);
+      console.log(`  worktree: ${session.worktreePath}`);
+      console.log(`  pid:      ${session.pid ?? '—'} (${pidState})`);
+      console.log(`  last:     ${lastSeen}`);
+      console.log('');
+    }
+  });
+
+program
+  .command('inspect')
+  .description('Inspect one tracked agent session: summary, recent events, and current git diff.')
+  .argument('<name-or-id>', 'Session id or exact session name')
+  .option('--events <count>', 'Number of recent events to show (default 25)')
+  .action(async (nameOrId, opts) => {
+    const db = openDb(process.env.GITHANGER_DB);
+    const eventLimit = Math.max(1, Number(opts.events ?? 25));
+    const session =
+      (db.prepare('SELECT * FROM sessions WHERE id=?').get(String(nameOrId)) as any) ??
+      (db.prepare('SELECT * FROM sessions WHERE name=? ORDER BY startedAt DESC LIMIT 1').get(String(nameOrId)) as any);
+
+    if (!session) {
+      throw new Error(`No session found for: ${nameOrId}`);
+    }
+
+    console.log(`${session.name} (${session.provider})`);
+    console.log(`status:   ${session.status}`);
+    console.log(`branch:   ${session.branch}`);
+    console.log(`repo:     ${session.repoPath}`);
+    console.log(`worktree: ${session.worktreePath}`);
+    console.log(`started:  ${new Date(session.startedAt).toLocaleString()}`);
+    console.log(`ended:    ${session.endedAt ? new Date(session.endedAt).toLocaleString() : '—'}`);
+    console.log('');
+
+    const events = db
+      .prepare('SELECT ts, kind, message FROM events WHERE sessionId=? ORDER BY ts DESC LIMIT ?')
+      .all(session.id, eventLimit) as Array<{ ts: number; kind: string; message: string | null }>;
+
+    console.log('Recent events');
+    console.log('-------------');
+    if (!events.length) {
+      console.log('No events recorded yet.');
+    } else {
+      for (const event of events) {
+        let message = event.message ?? '';
+        try {
+          const parsed = JSON.parse(message) as any;
+          message = parsed?.text ?? parsed?.detail ?? parsed?.title ?? parsed?.message ?? JSON.stringify(parsed);
+        } catch {
+          // keep raw message
+        }
+        const compact = message.replace(/\s+/g, ' ').trim();
+        console.log(`[${new Date(event.ts).toLocaleTimeString()}] ${event.kind}: ${compact || '—'}`);
+      }
+    }
+
+    console.log('');
+    console.log('Git diff');
+    console.log('--------');
+    const diff = await git(['-C', session.worktreePath, 'diff', '--stat', '--patch', '--unified=2']);
+    const trimmed = diff.all.trim();
+    console.log(trimmed || 'No unstaged diff.');
   });
 
 await program.parseAsync(process.argv);

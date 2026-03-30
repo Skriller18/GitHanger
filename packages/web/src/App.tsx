@@ -182,11 +182,12 @@ function RepoPage() {
   const [repo, setRepo] = React.useState<Repo | null>(null);
   const [worktrees, setWorktrees] = React.useState<Worktree[]>([]);
   const [sessions, setSessions] = React.useState<any[]>([]);
-  const [branches, setBranches] = React.useState<Array<{ name: string; upstream: string | null; isHead: boolean }>>([]);
+  const [branches, setBranches] = React.useState<Array<{ name: string; upstream: string | null; isHead: boolean; createdAt: number | null }>>([]);
   const [err, setErr] = React.useState<string | null>(null);
   const [newBranchName, setNewBranchName] = React.useState('');
   const [newBranchSource, setNewBranchSource] = React.useState('');
   const [branchBusy, setBranchBusy] = React.useState(false);
+  const [branchQuery, setBranchQuery] = React.useState('');
   const [actionMsg, setActionMsg] = React.useState<{ kind: 'success' | 'error'; text: string } | null>(null);
 
   function showAction(kind: 'success' | 'error', text: string) {
@@ -206,11 +207,13 @@ function RepoPage() {
 
       const [s, b] = await Promise.all([
         apiGet<{ sessions: any[] }>(`/api/sessions2?repoPath=${encodeURIComponent((data.repo as Repo).path)}`),
-        apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean }> }>(`/api/repos/${id}/branches`),
+        apiGet<{ branches: Array<{ name: string; upstream: string | null; isHead: boolean; createdAt: number | null }> }>(`/api/repos/${id}/branches`),
       ]);
       setSessions(s.sessions);
       setBranches(b.branches);
-      if (!newBranchSource && b.branches.length > 0) setNewBranchSource(b.branches[0].name);
+      if ((!newBranchSource || !b.branches.some((branch) => branch.name === newBranchSource)) && b.branches.length > 0) {
+        setNewBranchSource(b.branches[0].name);
+      }
     } catch (e: any) {
       setErr(e.message ?? String(e));
     }
@@ -224,6 +227,12 @@ function RepoPage() {
     if (document.visibilityState !== 'visible') return;
     refreshRepo();
   }, 3000);
+
+  const filteredBranches = React.useMemo(() => {
+    const query = branchQuery.trim().toLowerCase();
+    if (!query) return branches;
+    return branches.filter((branch) => branch.name.toLowerCase().includes(query));
+  }, [branches, branchQuery]);
 
   if (err) return <div style={{ color: 'crimson' }}>{err}</div>;
   if (!repo) return <div>Loading…</div>;
@@ -309,8 +318,18 @@ function RepoPage() {
               </button>
             </form>
 
+            <input
+              value={branchQuery}
+              onChange={(e) => setBranchQuery(e.target.value)}
+              placeholder="Search branches"
+            />
+
+            <div className="gh-muted" style={{ fontSize: 12 }}>
+              Sorted by latest branch creation date.
+            </div>
+
             <div style={{ display: 'grid', gap: 8, maxHeight: 280, overflow: 'auto' }}>
-            {branches.map((b) => (
+            {filteredBranches.map((b) => (
               <Link
                 key={b.name}
                 to={`/repo/${repo.id}/branch?name=${encodeURIComponent(b.name)}&base=main`}
@@ -322,13 +341,16 @@ function RepoPage() {
                     <div className="gh-code" style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {b.name}
                     </div>
-                    {b.upstream ? <div className="gh-muted" style={{ fontSize: 12, marginTop: 4 }}>upstream: {b.upstream}</div> : null}
+                    <div className="gh-muted" style={{ fontSize: 12, marginTop: 4, display: 'grid', gap: 2 }}>
+                      {b.upstream ? <span>upstream: {b.upstream}</span> : null}
+                      <span>created: {b.createdAt ? new Date(b.createdAt).toLocaleString() : 'unknown'}</span>
+                    </div>
                   </div>
                   <div className="gh-muted" style={{ fontSize: 12, fontWeight: 800 }}>{b.isHead ? 'HEAD' : ''}</div>
                 </div>
               </Link>
             ))}
-            {!branches.length ? <div className="gh-muted">No local branches found.</div> : null}
+            {!filteredBranches.length ? <div className="gh-muted">No branches match that search.</div> : null}
             </div>
           </div>
         </div>

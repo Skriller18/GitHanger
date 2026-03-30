@@ -5,16 +5,22 @@ import type { Db } from './db.js';
 import { git } from './git.js';
 
 async function listLocalBranches(repoPath: string) {
-  // name|upstream|headFlag
-  const fmt = '%(refname:short)|%(upstream:short)|%(HEAD)';
-  const out = await git(['-C', repoPath, 'for-each-ref', 'refs/heads', `--format=${fmt}`]);
+  // name|upstream|headFlag|creatorDateEpoch
+  const fmt = '%(refname:short)|%(upstream:short)|%(HEAD)|%(creatordate:unix)';
+  const out = await git(['-C', repoPath, 'for-each-ref', 'refs/heads', '--sort=-creatordate', `--format=${fmt}`]);
   return out
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
     .map((l) => {
-      const [name, upstream, head] = l.split('|');
-      return { name, upstream: upstream || null, isHead: head === '*' };
+      const [name, upstream, head, createdAtRaw] = l.split('|');
+      const createdAt = Number(createdAtRaw || 0);
+      return {
+        name,
+        upstream: upstream || null,
+        isHead: head === '*',
+        createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt * 1000 : null,
+      };
     });
 }
 
