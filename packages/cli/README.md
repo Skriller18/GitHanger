@@ -1,6 +1,6 @@
 # githanger
 
-GitHanger CLI for managing local git worktrees and tracked AI agent sessions.
+GitHanger CLI for managing local git worktrees, tracked AI agent sessions, and the bundled local dashboard.
 
 ## Install
 
@@ -8,23 +8,120 @@ GitHanger CLI for managing local git worktrees and tracked AI agent sessions.
 npm install -g githanger
 ```
 
-Or run one-off commands with `npx`:
+Or use it one-off with:
 
 ```bash
 npx githanger --help
 ```
 
-## Commands
+## Main commands
 
-- `githanger init` register a repository in `~/.githanger/githanger.sqlite`
-- `githanger run` start an agent session in a dedicated worktree
-- `githanger serve` run the local API server (primarily for source checkouts / advanced usage)
-- `githanger start` run API + web dashboard from either a source checkout or an installed npm package
-- `githanger status` show all tracked agent sessions in the terminal
-- `githanger inspect <session-name-or-id>` show one session, recent events, and current diff
+### Register a repo
+
+```bash
+cd /path/to/your/repo
+githanger init
+```
+
+### Start the dashboard
+
+```bash
+githanger start
+```
+
+This starts the local API server and dashboard.
+
+Default dashboard URL:
+
+```text
+http://127.0.0.1:5173
+```
+
+### Start a tracked agent session
+
+```bash
+cd /path/to/your/repo
+githanger run
+```
+
+### Show all tracked sessions
+
+```bash
+githanger status
+```
+
+### Inspect one session
+
+```bash
+githanger inspect <session-name-or-id>
+```
+
+This shows:
+- session summary
+- recent recorded events
+- current git diff for the session worktree
+
+### Advanced / source-checkout usage
+
+```bash
+githanger serve
+```
+
+Runs only the local API server. This is mainly useful in source-checkout or advanced local development flows.
+
+## Installed-package behavior
+
+`githanger start` is intended to work after a normal global install, without cloning the repo:
+
+```bash
+npm install -g githanger
+githanger start
+```
+
+The published package bundles:
+- CLI
+- server build
+- dashboard static assets
+
+## Typical flow
+
+```bash
+# install once
+npm install -g githanger
+
+# register a repo
+cd ~/projects/my-repo
+githanger init
+
+# start dashboard
+githanger start
+
+# run tracked agent session
+cd ~/projects/my-repo
+githanger run
+
+# inspect sessions in terminal
+githanger status
+githanger inspect my-session
+```
+
+## Local storage
+
+Session metadata is stored locally in:
+
+```text
+~/.githanger/githanger.sqlite
+```
+
+Runtime logs from `githanger start` are written under:
+
+```text
+~/.githanger/
+```
 
 ## Notes
 
-- `githanger start` is intended to work after `npm install -g githanger`, without cloning the repo.
-- In a source checkout, run `npm run build` once before packaging/publishing so bundled server + dashboard assets are available.
-- Session metadata is stored locally and never sent to a remote service by this package.
+- `githanger start` works for both installed-package and source-checkout flows.
+- In a source checkout, run `npm run build` before packaging/publishing.
+- Session metadata stays local to your machine.
+- Latest published package: `githanger@0.1.2`
